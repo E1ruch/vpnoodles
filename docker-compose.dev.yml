@@ -1,0 +1,49 @@
+version: '3.9'
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  VPNoodles — Dev Compose (только инфраструктура)
+#  Бот запускается ЛОКАЛЬНО: npm run dev
+#  Это позволяет боту использовать системный VPN/интернет хоста
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: vpnoodles_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-vpnoodles}
+      POSTGRES_USER: ${DB_USER:-vpnoodles_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-strong_password_here}
+    ports:
+      - '5432:5432'          # доступен с хоста
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-vpnoodles_user} -d ${DB_NAME:-vpnoodles}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: vpnoodles_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - '6379:6379'          # доступен с хоста
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
