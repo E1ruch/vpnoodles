@@ -1,0 +1,51 @@
+{
+  "name": "vpnoodles-bot",
+  "version": "1.0.0",
+  "description": "Telegram VPN & Proxy Bot — scalable MVP",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "migrate": "node src/database/migrate.js",
+    "seed": "node src/database/seed.js",
+    "lint": "eslint src/",
+    "test": "jest --coverage"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "vpn",
+    "proxy",
+    "nodejs"
+  ],
+  "author": "vpnoodles",
+  "license": "MIT",
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "dotenv": "^16.4.5",
+    "knex": "^3.1.0",
+    "pg": "^8.11.5",
+    "redis": "^4.6.13",
+    "winston": "^3.13.0",
+    "winston-daily-rotate-file": "^5.0.0",
+    "axios": "^1.6.8",
+    "uuid": "^9.0.1",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "node-cron": "^3.0.3",
+    "qrcode": "^1.5.3",
+    "i18n": "^0.15.1",
+    "joi": "^17.12.3",
+    "p-queue": "^7.4.1",
+    "dayjs": "^1.11.10"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0",
+    "eslint": "^9.0.0",
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
