@@ -92,6 +92,16 @@ const User = {
     const user = await User.findById(id);
     return !!user?.trial_used_at;
   },
+
+  async setReferrer(id, referrerTelegramId) {
+    // Only set if not already set
+    const user = await User.findById(id);
+    if (!user || user.referred_by) return;
+    const referrer = await User.findByTelegramId(referrerTelegramId);
+    if (!referrer) return;
+    await User.update(id, { referred_by: referrer.id });
+    await User.incrementReferralCount(referrer.id);
+  },
 };
 
 module.exports = User;
