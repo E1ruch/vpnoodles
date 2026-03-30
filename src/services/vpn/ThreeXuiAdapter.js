@@ -65,7 +65,7 @@ class ThreeXuiAdapter {
   // ── Inbound / Client management ────────────────────────────────────────────
 
   async getInbounds() {
-    return this._request('GET', '/xui/API/inbounds');
+    return this._request('GET', '/panel/api/inbounds/list');
   }
 
   /**
@@ -91,7 +91,7 @@ class ThreeXuiAdapter {
       }),
     };
 
-    const result = await this._request('POST', '/xui/API/inbounds/addClient', payload);
+    const result = await this._request('POST', '/panel/api/inbounds/addClient', payload);
     logger.info('3x-ui client added', { email: clientSettings.email });
     return result;
   }
@@ -101,25 +101,25 @@ class ThreeXuiAdapter {
       id: inboundId,
       settings: JSON.stringify({ clients: [{ id: uuid, ...clientSettings }] }),
     };
-    return this._request('POST', `/xui/API/inbounds/updateClient/${uuid}`, payload);
+    return this._request('POST', `/panel/api/inbounds/updateClient/${uuid}`, payload);
   }
 
   async deleteClient(inboundId, uuid) {
-    return this._request('POST', `/xui/API/inbounds/${inboundId}/delClient/${uuid}`);
+    return this._request('POST', `/panel/api/inbounds/${inboundId}/delClient/${uuid}`);
   }
 
   async getClientTraffic(email) {
-    return this._request('GET', `/xui/API/inbounds/getClientTraffics/${email}`);
+    return this._request('GET', `/panel/api/inbounds/getClientTraffics/${email}`);
   }
 
   async resetClientTraffic(inboundId, email) {
-    return this._request('POST', `/xui/API/inbounds/${inboundId}/resetClientTraffic/${email}`);
+    return this._request('POST', `/panel/api/inbounds/${inboundId}/resetClientTraffic/${email}`);
   }
 
   // ── Stats ──────────────────────────────────────────────────────────────────
 
   async getServerStatus() {
-    return this._request('POST', '/xui/API/server/status');
+    return this._request('GET', '/panel/api/server/status');
   }
 }
 
