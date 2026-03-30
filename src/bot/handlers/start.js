@@ -2,6 +2,7 @@
 
 const { Markup } = require('telegraf');
 const SubscriptionService = require('../../services/SubscriptionService');
+const User = require('../../models/User');
 
 /**
  * /start handler — welcome message + main menu
@@ -10,7 +11,19 @@ module.exports = async (ctx) => {
   const user = ctx.state.user;
   const name = ctx.from.first_name || 'друг';
 
-  const activeSub = await SubscriptionService.getActive(user.id);
+  // Handle referral link: /start ref_<telegram_id>
+  const startPayload = ctx.message?.text?.split(' ')[1];
+  if (startPayload?.startsWith('ref_')) {
+    const referrerId = parseInt(startPayload.replace('ref_', ''), 10);
+    if (referrerId && referrerId !== user.telegram_id) {
+      await User.setReferrer(user.id, referrerId).catch(() => {});
+    }
+  }
+
+  const [activeSub, trialUsed] = await Promise.all([
+    SubscriptionService.getActive(user.id),
+    User.hasUsedTrial(user.id),
+  ]);
 
   const welcomeText = activeSub
     ? `👋 С возвращением, *${name}*!\n\n` +
@@ -23,22 +36,37 @@ module.exports = async (ctx) => {
       `• Протоколы VLESS / VMess / Trojan\n` +
       `• До 10 устройств одновременно\n` +
       `• Поддержка 24/7\n\n` +
-      `🎁 Попробуйте *бесплатно 3 дня* — без карты!`;
+      (trialUsed
+        ? `💳 Выберите план и начните пользоваться VPN!`
+        : `🎁 Попробуйте *бесплатно 3 дня* — без карты!`);
 
-  const keyboard = activeSub
-    ? Markup.inlineKeyboard([
-        [Markup.button.callback('📱 Мой VPN', 'my_vpn')],
-        [Markup.button.callback('🔄 Продлить подписку', 'subscribe')],
-        [
-          Markup.button.callback('👤 Профиль', 'profile'),
-          Markup.button.callback('👥 Реферал', 'referral'),
-        ],
-      ])
-    : Markup.inlineKeyboard([
-        [Markup.button.callback('🎁 Попробовать бесплатно', 'trial')],
-        [Markup.button.callback('💳 Купить подписку', 'subscribe')],
-        [Markup.button.callback('👤 Профиль', 'profile')],
-      ]);
+  let keyboard;
+  if (activeSub) {
+    keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('📱 Мой VPN', 'my_vpn')],
+      [Markup.button.callback('🔄 Продлить подписку', 'subscribe')],
+      [
+        Markup.button.callback('👤 Профиль', 'profile'),
+        Markup.button.callback('👥 Реферал', 'referral'),
+      ],
+    ]);
+  } else if (!trialUsed) {
+    // New user — show trial button
+    keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('🎁 Попробовать бесплатно', 'trial')],
+      [Markup.button.callback('💳 Купить подписку', 'subscribe')],
+      [Markup.button.callback('👤 Профиль', 'profile')],
+    ]);
+  } else {
+    // Trial already used — only paid options
+    keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('\uD83D\uDCB3 Купить подписку', 'subscribe')],
+      [
+        Markup.button.callback('👤 Профиль', 'profile'),
+        Markup.button.callback('👥 Реферал', 'referral'),
+      ],
+    ]);
+  }
 
   await ctx.replyWithMarkdown(welcomeText, keyboard);
 };
