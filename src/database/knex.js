@@ -12,7 +12,7 @@ const db = knex({
     database: config.db.database,
     user: config.db.user,
     password: config.db.password,
-    ssl: config.app.isProd ? { rejectUnauthorized: false } : false,
+    ssl: config.db.ssl,
   },
   pool: {
     min: config.db.pool.min,

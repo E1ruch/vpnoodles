@@ -35,6 +35,9 @@ const config = {
       min: parseInt(process.env.DB_POOL_MIN, 10) || 2,
       max: parseInt(process.env.DB_POOL_MAX, 10) || 10,
     },
+    // SSL: set DB_SSL=true only when connecting to managed cloud Postgres (e.g. RDS, Supabase)
+    // Leave false (default) for local Docker postgres — it doesn't support SSL
+    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
   },
 
   // ── Redis ─────────────────────────────────────────────────────────────────
