@@ -55,6 +55,12 @@ const config = {
     username: process.env.VPN_PANEL_USERNAME || 'admin',
     password: process.env.VPN_PANEL_PASSWORD || '',
     type: process.env.VPN_PANEL_TYPE || 'marzban', // marzban | 3xui | outline
+    // 3x-ui specific
+    inboundId: parseInt(process.env.VPN_INBOUND_ID, 10) || 1,
+    // Public domain/IP of your VPN server for generating client links
+    serverDomain: process.env.VPN_SERVER_DOMAIN || '',
+    // Subscription path prefix (3x-ui sub link)
+    subPath: process.env.VPN_SUB_PATH || '/sub',
   },
 
   // ── Payments ──────────────────────────────────────────────────────────────

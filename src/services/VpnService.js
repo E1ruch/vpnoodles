@@ -45,16 +45,28 @@ const VpnService = {
     } else if (config.vpnPanel.type === '3xui') {
       const uuid = uuidv4();
       const expiryTime = Date.now() + plan.duration_days * 86400 * 1000;
-      await adapter.addClient(1, {
-        // inboundId=1 by default, configure as needed
+      const inboundId = config.vpnPanel.inboundId;
+
+      await adapter.addClient(inboundId, {
         id: uuid,
         email: panelUsername,
         totalGB: plan.traffic_bytes ? plan.traffic_bytes / (1024 * 1024 * 1024) : 0,
         expiryTime,
         tgId: String(user.telegram_id),
+        subId: panelUsername, // used for subscription URL
       });
+
       panelUser = { username: panelUsername, uuid };
-      configLink = ''; // 3x-ui link generation depends on server config
+
+      // 3x-ui subscription link — user imports this URL in their VPN client
+      // Format: https://your-server.com/sub/<subId>
+      if (config.vpnPanel.serverDomain) {
+        configLink = `${config.vpnPanel.serverDomain}${config.vpnPanel.subPath}/${panelUsername}`;
+      } else {
+        // Fallback: use panel URL base
+        const panelBase = config.vpnPanel.url.replace(/\/[^/]*$/, ''); // strip path
+        configLink = `${panelBase}${config.vpnPanel.subPath}/${panelUsername}`;
+      }
     }
 
     const vpnConfig = await VpnConfig.create({
