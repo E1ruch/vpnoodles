@@ -4,6 +4,28 @@ const { Telegraf, session } = require('telegraf');
 const config = require('../config');
 const logger = require('../utils/logger');
 
+// ── Proxy agent (optional) ────────────────────────────────────────────────────
+// Set HTTPS_PROXY=http://host:port or SOCKS5_PROXY=socks5://host:port in .env
+// to route all Telegram API requests through a proxy.
+function createAgent() {
+  const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
+  const socksProxy = process.env.SOCKS5_PROXY || process.env.socks5_proxy;
+
+  if (socksProxy) {
+    const { SocksProxyAgent } = require('socks-proxy-agent');
+    logger.info(`🔀 Using SOCKS5 proxy: ${socksProxy}`);
+    return new SocksProxyAgent(socksProxy);
+  }
+
+  if (httpsProxy) {
+    const { HttpsProxyAgent } = require('https-proxy-agent');
+    logger.info(`🔀 Using HTTPS proxy: ${httpsProxy}`);
+    return new HttpsProxyAgent(httpsProxy);
+  }
+
+  return undefined;
+}
+
 // ── Middleware ─────────────────────────────────────────────────────────────────
 const authMiddleware = require('./middleware/auth');
 const loggerMiddleware = require('./middleware/logger');
@@ -24,7 +46,10 @@ const paymentHandler = require('./handlers/payment');
 const adminHandler = require('./handlers/admin');
 
 async function createBot() {
-  const bot = new Telegraf(config.telegram.token);
+  const agent = createAgent();
+  const bot = new Telegraf(config.telegram.token, {
+    telegram: { agent },
+  });
 
   // ── Session ───────────────────────────────────────────────────────────────
   // We use Telegraf's built-in in-memory session for both dev and prod.
