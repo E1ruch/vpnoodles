@@ -1,4 +1,4 @@
-version: '3.9'
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  VPNoodles — Docker Compose
@@ -26,8 +26,8 @@ services:
         condition: service_healthy
     ports:
       - '${PORT:-3000}:3000'
-    volumes:
-      - ./logs:/app/logs
+ #   volumes:
+  #    - ./logs:/app/logs
     networks:
       - vpnoodles_net
     logging:
@@ -45,8 +45,8 @@ services:
       POSTGRES_DB: ${DB_NAME:-vpnoodles}
       POSTGRES_USER: ${DB_USER:-vpnoodles_user}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-strong_password_here}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+ #   volumes:
+  #    - postgres_data:/var/lib/postgresql/data
     networks:
       - vpnoodles_net
     healthcheck:
@@ -66,8 +66,8 @@ services:
     container_name: vpnoodles_redis
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    volumes:
-      - redis_data:/data
+ #   volumes:
+  #    - redis_data:/data
     networks:
       - vpnoodles_net
     healthcheck:
@@ -82,11 +82,11 @@ services:
         max-file: '3'
 
 # ── Volumes ──────────────────────────────────────────────────────────────────
-volumes:
-  postgres_data:
-    driver: local
-  redis_data:
-    driver: local
+#volumes:
+#  postgres_data:
+#    driver: local
+#  redis_data:
+#    driver: local
 
 # ── Networks ─────────────────────────────────────────────────────────────────
 networks:
