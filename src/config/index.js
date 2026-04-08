@@ -24,7 +24,7 @@ const config = {
     webhookDomain: process.env.WEBHOOK_DOMAIN || '',
   },
 
-  // ── Database ─────────────────────────────────────────────────────────────
+  // ── Database (PostgreSQL) ─────────────────────────────────────────────────
   db: {
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT, 10) || 5432,
@@ -35,32 +35,26 @@ const config = {
       min: parseInt(process.env.DB_POOL_MIN, 10) || 2,
       max: parseInt(process.env.DB_POOL_MAX, 10) || 10,
     },
-    // SSL: set DB_SSL=true only when connecting to managed cloud Postgres (e.g. RDS, Supabase)
-    // Leave false (default) for local Docker postgres — it doesn't support SSL
+    // SSL: set DB_SSL=true only for managed cloud Postgres (RDS, Supabase, etc.)
+    // Keep false for local/Docker postgres — it doesn't support SSL by default
     ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
-  },
-
-  // ── Redis ─────────────────────────────────────────────────────────────────
-  redis: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT, 10) || 6379,
-    password: process.env.REDIS_PASSWORD || undefined,
-    db: parseInt(process.env.REDIS_DB, 10) || 0,
-    sessionTtl: parseInt(process.env.SESSION_TTL, 10) || 86400,
   },
 
   // ── VPN Panel ─────────────────────────────────────────────────────────────
   vpnPanel: {
-    url: process.env.VPN_PANEL_URL || '',
+    type: process.env.VPN_PANEL_TYPE || 'remnawave', // remnawave | marzban | 3xui
+    url: process.env.VPN_PANEL_URL || '', // https://your-panel.com (no trailing slash)
     username: process.env.VPN_PANEL_USERNAME || 'admin',
     password: process.env.VPN_PANEL_PASSWORD || '',
-    type: process.env.VPN_PANEL_TYPE || 'marzban', // marzban | 3xui | outline
-    // 3x-ui specific
-    inboundId: parseInt(process.env.VPN_INBOUND_ID, 10) || 1,
-    // Public domain/IP of your VPN server for generating client links
+    // Public domain for subscription links (can differ from panel URL)
     serverDomain: process.env.VPN_SERVER_DOMAIN || '',
-    // Subscription path prefix (3x-ui sub link)
-    subPath: process.env.VPN_SUB_PATH || '/sub',
+    // Subscription path (Remnawave default: /api/sub, 3x-ui: /sub)
+    subPath: process.env.VPN_SUB_PATH || '/api/sub',
+    // Comma-separated inbound tags to assign to new users (Remnawave)
+    // Leave empty to use all active inbounds
+    inboundTags: process.env.VPN_INBOUND_TAGS || '',
+    // 3x-ui specific: inbound ID number
+    inboundId: parseInt(process.env.VPN_INBOUND_ID, 10) || 1,
   },
 
   // ── Payments ──────────────────────────────────────────────────────────────
@@ -102,7 +96,6 @@ const config = {
 // ── Validation ────────────────────────────────────────────────────────────────
 function validateConfig(cfg) {
   const required = [['telegram.token', cfg.telegram.token]];
-
   const missing = required.filter(([, val]) => !val).map(([key]) => key);
 
   if (missing.length > 0) {

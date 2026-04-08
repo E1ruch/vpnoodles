@@ -10,6 +10,8 @@ const logger = require('../utils/logger');
 // ── Load the correct panel adapter ────────────────────────────────────────────
 function getAdapter() {
   switch (config.vpnPanel.type) {
+    case 'remnawave':
+      return require('./vpn/RemnawaveAdapter');
     case 'marzban':
       return require('./vpn/MarzbanAdapter');
     case '3xui':
@@ -31,16 +33,40 @@ const VpnService = {
     const adapter = getAdapter();
     const panelUsername = `vpn_${user.telegram_id}`;
 
-    let panelUser;
-    let configLink;
+    let configLink = '';
 
-    if (config.vpnPanel.type === 'marzban') {
-      panelUser = await adapter.createUser(
+    if (config.vpnPanel.type === 'remnawave') {
+      // Check if user already exists in panel (re-subscription case)
+      let panelUser;
+      try {
+        panelUser = await adapter.getUser(panelUsername);
+        // User exists — extend expiry
+        await adapter.extendUser(panelUsername, plan.duration_days);
+        await adapter.enableUser(panelUsername);
+        logger.info('Remnawave user extended', { panelUsername });
+      } catch (err) {
+        if (err.response?.status === 404) {
+          // User doesn't exist — create new
+          panelUser = await adapter.createUser(
+            panelUsername,
+            plan.traffic_bytes || 0,
+            plan.duration_days,
+            String(user.telegram_id),
+          );
+          logger.info('Remnawave user created', { panelUsername });
+        } else {
+          throw err;
+        }
+      }
+
+      // Subscription URL — user imports this in VPN client
+      configLink = adapter.getSubscriptionUrl(panelUsername);
+    } else if (config.vpnPanel.type === 'marzban') {
+      const panelUser = await adapter.createUser(
         panelUsername,
         plan.traffic_bytes || 0,
         plan.duration_days,
       );
-      // Marzban returns subscription_url which is the config link
       configLink = panelUser.subscription_url || panelUser.links?.[0] || '';
     } else if (config.vpnPanel.type === '3xui') {
       const uuid = uuidv4();
@@ -53,32 +79,39 @@ const VpnService = {
         totalGB: plan.traffic_bytes ? plan.traffic_bytes / (1024 * 1024 * 1024) : 0,
         expiryTime,
         tgId: String(user.telegram_id),
-        subId: panelUsername, // used for subscription URL
+        subId: panelUsername,
       });
 
-      panelUser = { username: panelUsername, uuid };
-
-      // 3x-ui subscription link — user imports this URL in their VPN client
-      // Format: https://your-server.com/sub/<subId>
       if (config.vpnPanel.serverDomain) {
         configLink = `${config.vpnPanel.serverDomain}${config.vpnPanel.subPath}/${panelUsername}`;
       } else {
-        // Fallback: use panel URL base
-        const panelBase = config.vpnPanel.url.replace(/\/[^/]*$/, ''); // strip path
+        const panelBase = config.vpnPanel.url.replace(/\/[^/]*$/, '');
         configLink = `${panelBase}${config.vpnPanel.subPath}/${panelUsername}`;
       }
     }
 
-    const vpnConfig = await VpnConfig.create({
-      userId,
-      subscriptionId,
-      panelUserId: panelUsername,
-      protocol: 'vless',
-      configLink,
-      serverTag: 'default',
-    });
+    // Save or update vpn_config in DB
+    const existing = await VpnConfig.findActiveByUserId(userId);
+    let vpnConfig;
 
-    logger.info('VPN provisioned', { userId, subscriptionId, panelUsername });
+    if (existing && existing.length > 0) {
+      // Update existing config link
+      vpnConfig = await VpnConfig.update(existing[0].id, {
+        config_link: configLink,
+        status: 'active',
+      });
+    } else {
+      vpnConfig = await VpnConfig.create({
+        userId,
+        subscriptionId,
+        panelUserId: panelUsername,
+        protocol: config.vpnPanel.type === 'remnawave' ? 'subscription' : 'vless',
+        configLink,
+        serverTag: 'default',
+      });
+    }
+
+    logger.info('VPN provisioned', { userId, subscriptionId, panelUsername, configLink });
     return vpnConfig;
   },
 
@@ -112,12 +145,7 @@ const VpnService = {
 
     for (const cfg of configs) {
       try {
-        if (config.vpnPanel.type === 'marzban') {
-          await adapter.disableUser(cfg.panel_user_id);
-        } else if (config.vpnPanel.type === '3xui') {
-          // 3x-ui: update client with enable=false
-          await adapter.updateClient(1, cfg.panel_user_id, { enable: false });
-        }
+        await adapter.disableUser(cfg.panel_user_id);
         await VpnConfig.disable(cfg.id);
       } catch (err) {
         logger.error('Failed to disable VPN config', { configId: cfg.id, error: err.message });
@@ -134,11 +162,7 @@ const VpnService = {
 
     for (const cfg of configs) {
       try {
-        if (config.vpnPanel.type === 'marzban') {
-          await adapter.enableUser(cfg.panel_user_id);
-        } else if (config.vpnPanel.type === '3xui') {
-          await adapter.updateClient(1, cfg.panel_user_id, { enable: true });
-        }
+        await adapter.enableUser(cfg.panel_user_id);
         await VpnConfig.enable(cfg.id);
       } catch (err) {
         logger.error('Failed to enable VPN config', { configId: cfg.id, error: err.message });
@@ -155,10 +179,7 @@ const VpnService = {
 
     for (const cfg of configs) {
       try {
-        if (config.vpnPanel.type === 'marzban') {
-          await adapter.extendUser(cfg.panel_user_id, days);
-        }
-        // 3x-ui extension handled via updateClient with new expiryTime
+        await adapter.extendUser(cfg.panel_user_id, days);
       } catch (err) {
         logger.error('Failed to extend VPN in panel', { configId: cfg.id, error: err.message });
       }
@@ -167,7 +188,7 @@ const VpnService = {
 
   async getSystemStats() {
     const adapter = getAdapter();
-    return adapter.getSystemStats?.() || adapter.getServerStatus?.();
+    return adapter.getSystemStats?.();
   },
 };
 

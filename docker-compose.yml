@@ -1,42 +1,10 @@
+version: '3.9'
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  VPNoodles — Docker Compose
-#  Services: bot, postgres, redis
-# ─────────────────────────────────────────────────────────────────────────────
+# VPNoodles Bot — Production
+# Runs alongside Remnawave panel on the same VPS.
+# Only PostgreSQL + bot — no Redis needed.
 
 services:
-  # ── Telegram Bot ────────────────────────────────────────────────────────────
-  bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: production
-    container_name: vpnoodles_bot
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      NODE_ENV: production
-      DB_HOST: postgres
-      REDIS_HOST: redis
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    ports:
-      - '${PORT:-3000}:3000'
-    volumes:
-      - ./logs:/app/logs
-    networks:
-      - vpnoodles_net
-    logging:
-      driver: json-file
-      options:
-        max-size: '10m'
-        max-file: '5'
-
-  # ── PostgreSQL ───────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: vpnoodles_postgres
@@ -44,51 +12,33 @@ services:
     environment:
       POSTGRES_DB: ${DB_NAME:-vpnoodles}
       POSTGRES_USER: ${DB_USER:-vpnoodles_user}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-strong_password_here}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - vpnoodles_net
+    ports:
+      - '127.0.0.1:5432:5432'   # only localhost — not exposed to internet
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-vpnoodles_user} -d ${DB_NAME:-vpnoodles}']
       interval: 10s
       timeout: 5s
       retries: 5
-    logging:
-      driver: json-file
-      options:
-        max-size: '5m'
-        max-file: '3'
 
-  # ── Redis ────────────────────────────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: vpnoodles_redis
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vpnoodles_bot
     restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DB_HOST: postgres
     volumes:
-      - redis_data:/data
-    networks:
-      - vpnoodles_net
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    logging:
-      driver: json-file
-      options:
-        max-size: '5m'
-        max-file: '3'
+      - ./logs:/app/logs
+    command: ['node', 'src/index.js']
 
-# ── Volumes ──────────────────────────────────────────────────────────────────
 volumes:
   postgres_data:
-    driver: local
-  redis_data:
-    driver: local
-
-# ── Networks ─────────────────────────────────────────────────────────────────
-networks:
-  vpnoodles_net:
-    driver: bridge

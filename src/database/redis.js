@@ -1,67 +1,29 @@
 'use strict';
 
-const { createClient } = require('redis');
-const config = require('../config');
-const logger = require('../utils/logger');
+/**
+ * Redis stub — Redis has been removed from this project.
+ * Rate limiting is now handled in-memory (src/bot/middleware/rateLimit.js).
+ * Sessions use Telegraf's built-in in-memory store.
+ *
+ * This file is kept as a no-op stub to avoid import errors
+ * if any legacy code still references it.
+ */
 
-const client = createClient({
-  socket: {
-    host: config.redis.host,
-    port: config.redis.port,
-    reconnectStrategy: (retries) => Math.min(retries * 100, 3000),
+const noop = async () => {};
+
+const stub = {
+  connect: noop,
+  disconnect: noop,
+  get: async () => null,
+  set: noop,
+  del: noop,
+  incr: async () => 1,
+  expire: noop,
+  isOpen: false,
+  client: {
+    isOpen: false,
+    quit: noop,
   },
-  password: config.redis.password || undefined,
-  database: config.redis.db,
-});
-
-client.on('error', (err) => logger.error('Redis error', { error: err.message }));
-client.on('connect', () => logger.info('✅ Redis connected'));
-client.on('reconnecting', () => logger.warn('Redis reconnecting...'));
-
-async function connect() {
-  if (!client.isOpen) {
-    await client.connect();
-  }
-  return client;
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-/** Set a JSON value with optional TTL (seconds) */
-async function setJson(key, value, ttl = null) {
-  const str = JSON.stringify(value);
-  if (ttl) {
-    await client.setEx(key, ttl, str);
-  } else {
-    await client.set(key, str);
-  }
-}
-
-/** Get and parse a JSON value */
-async function getJson(key) {
-  const str = await client.get(key);
-  return str ? JSON.parse(str) : null;
-}
-
-/** Delete one or more keys */
-async function del(...keys) {
-  return client.del(keys);
-}
-
-/** Increment a counter with optional TTL (sets TTL only on first creation) */
-async function incr(key, ttl = null) {
-  const val = await client.incr(key);
-  if (val === 1 && ttl) {
-    await client.expire(key, ttl);
-  }
-  return val;
-}
-
-module.exports = {
-  client,
-  connect,
-  setJson,
-  getJson,
-  del,
-  incr,
 };
+
+module.exports = stub;
