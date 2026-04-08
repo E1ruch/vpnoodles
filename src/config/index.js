@@ -50,9 +50,15 @@ const config = {
     serverDomain: process.env.VPN_SERVER_DOMAIN || '',
     // Subscription path (Remnawave default: /api/sub, 3x-ui: /sub)
     subPath: process.env.VPN_SUB_PATH || '/api/sub',
-    // Comma-separated inbound tags to assign to new users (Remnawave)
-    // Leave empty to use all active inbounds
+    // Legacy / docs only — current Remnawave API uses internal squads (UUIDs), see VPN_INTERNAL_SQUAD_UUIDS
     inboundTags: process.env.VPN_INBOUND_TAGS || '',
+    // Remnawave: comma-separated internal squad UUIDs for new users (optional)
+    internalSquadUuids: (process.env.VPN_INTERNAL_SQUAD_UUIDS || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    // Set true only for self-signed TLS to the panel (default: verify certificate)
+    tlsInsecure: process.env.VPN_PANEL_TLS_INSECURE === 'true',
     // 3x-ui specific: inbound ID number
     inboundId: parseInt(process.env.VPN_INBOUND_ID, 10) || 1,
   },

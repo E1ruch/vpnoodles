@@ -1,12 +1,13 @@
 'use strict';
 
+const https = require('https');
 const axios = require('axios');
 const config = require('../../config');
 const logger = require('../../utils/logger');
 
 /**
  * Adapter for Remnawave VPN panel API.
- * Docs: https://remnawave.github.io/docs
+ * Docs: https://docs.rw/
  *
  * Remnawave uses JWT Bearer auth.
  * Base URL example: https://your-server.com  (no trailing slash)
@@ -20,14 +21,71 @@ class RemnawaveAdapter {
     this._token = null;
     this._tokenExpiry = null;
 
-    // axios instance with base config
-    this._http = axios.create({
+    const axiosOpts = {
       baseURL: `${this.baseUrl}/api`,
       timeout: 15000,
       headers: { 'Content-Type': 'application/json' },
-      // Allow self-signed certs (common for VPS panels)
-      httpsAgent: new (require('https').Agent)({ rejectUnauthorized: false }),
-    });
+    };
+    if (config.vpnPanel.tlsInsecure) {
+      axiosOpts.httpsAgent = new https.Agent({ rejectUnauthorized: false });
+    }
+
+    this._http = axios.create(axiosOpts);
+  }
+
+  /** Remnawave wraps many entities as { response: { ... } } */
+  _unwrapPayload(data) {
+    if (
+      data &&
+      typeof data === 'object' &&
+      Object.prototype.hasOwnProperty.call(data, 'response') &&
+      data.response !== null &&
+      typeof data.response === 'object' &&
+      !Array.isArray(data.response)
+    ) {
+      return data.response;
+    }
+    return data;
+  }
+
+  /** No HTTP response — connection dropped, timeout, reset, etc. */
+  _isTransientNetworkError(err) {
+    if (!err || err.response) return false;
+    const c = err.code;
+    if (
+      c === 'ECONNRESET' ||
+      c === 'ECONNREFUSED' ||
+      c === 'ETIMEDOUT' ||
+      c === 'EPIPE' ||
+      c === 'ECONNABORTED'
+    ) {
+      return true;
+    }
+    const msg = String(err.message || '').toLowerCase();
+    return msg.includes('socket hang up') || msg.includes('network error');
+  }
+
+  async _withNetworkRetries(operation, label) {
+    const maxAttempts = 3;
+    let lastErr;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await operation();
+      } catch (err) {
+        lastErr = err;
+        const retry = attempt < maxAttempts && this._isTransientNetworkError(err);
+        if (!retry) throw err;
+        const delayMs = 400 * attempt;
+        logger.warn('Remnawave network error, retry', {
+          label,
+          attempt,
+          nextInMs: delayMs,
+          code: err.code,
+        });
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+    throw lastErr;
   }
 
   // ── Auth ───────────────────────────────────────────────────────────────────
@@ -37,10 +95,14 @@ class RemnawaveAdapter {
       return this._token;
     }
 
-    const res = await this._http.post('/auth/login', {
-      username: this.username,
-      password: this.password,
-    });
+    const res = await this._withNetworkRetries(
+      () =>
+        this._http.post('/auth/login', {
+          username: this.username,
+          password: this.password,
+        }),
+      'auth/login',
+    );
 
     // Remnawave returns { accessToken, ... }
     this._token = res.data.accessToken || res.data.access_token;
@@ -50,27 +112,37 @@ class RemnawaveAdapter {
 
   async _request(method, path, data = null, params = null) {
     const token = await this._getToken();
+    const authHeaders = { Authorization: `Bearer ${token}` };
+
     try {
-      const res = await this._http({
-        method,
-        url: path,
-        data,
-        params,
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await this._withNetworkRetries(
+        () =>
+          this._http({
+            method,
+            url: path,
+            data,
+            params,
+            headers: authHeaders,
+          }),
+        `${method} ${path}`,
+      );
       return res.data;
     } catch (err) {
       // Re-auth on 401
       if (err.response?.status === 401) {
         this._token = null;
         const token2 = await this._getToken();
-        const res2 = await this._http({
-          method,
-          url: path,
-          data,
-          params,
-          headers: { Authorization: `Bearer ${token2}` },
-        });
+        const res2 = await this._withNetworkRetries(
+          () =>
+            this._http({
+              method,
+              url: path,
+              data,
+              params,
+              headers: { Authorization: `Bearer ${token2}` },
+            }),
+          `${method} ${path} (after re-auth)`,
+        );
         return res2.data;
       }
 
@@ -78,6 +150,7 @@ class RemnawaveAdapter {
         method,
         path,
         status: err.response?.status,
+        code: err.code,
         message: err.response?.data?.message || err.message,
       });
       throw err;
@@ -100,26 +173,35 @@ class RemnawaveAdapter {
       username,
       expireAt,
       trafficLimitBytes: trafficLimitBytes || 0,
-      trafficLimitStrategy: trafficLimitBytes ? 'MONTH_DAY' : 'NO_RESET',
+      // OpenAPI: NO_RESET | DAY | WEEK | MONTH | MONTH_ROLLING (MONTH_DAY is invalid)
+      trafficLimitStrategy: trafficLimitBytes ? 'MONTH_ROLLING' : 'NO_RESET',
       status: 'ACTIVE',
-      telegramId: tgId ? String(tgId) : undefined,
-      // Use all active inbounds by default (Remnawave handles this)
-      activeUserInbounds: config.vpnPanel.inboundTags
-        ? config.vpnPanel.inboundTags.split(',').map((t) => t.trim())
-        : [],
     };
 
-    const user = await this._request('POST', '/users', payload);
+    const tid = tgId !== '' && tgId != null ? parseInt(String(tgId), 10) : NaN;
+    if (!Number.isNaN(tid)) {
+      payload.telegramId = tid;
+    }
+
+    const squads = config.vpnPanel.internalSquadUuids || [];
+    if (squads.length > 0) {
+      payload.activeInternalSquads = squads;
+    }
+
+    const raw = await this._request('POST', '/users', payload);
+    const user = this._unwrapPayload(raw);
     logger.info('Remnawave user created', { username });
     return user;
   }
 
   async getUser(username) {
-    return this._request('GET', `/users/by-username/${username}`);
+    const raw = await this._request('GET', `/users/by-username/${encodeURIComponent(username)}`);
+    return this._unwrapPayload(raw);
   }
 
   async getUserByUuid(uuid) {
-    return this._request('GET', `/users/${uuid}`);
+    const raw = await this._request('GET', `/users/${uuid}`);
+    return this._unwrapPayload(raw);
   }
 
   async enableUser(username) {
@@ -154,27 +236,42 @@ class RemnawaveAdapter {
   }
 
   /**
-   * Get subscription link for a user (for VPN client import).
-   * Remnawave provides a sub URL per user.
+   * Prefer subscription URL returned by the panel (tokens, CDN, short UUID).
+   */
+  subscriptionUrlFromUser(user) {
+    if (!user || typeof user !== 'object') return '';
+    const url = user.subscriptionUrl;
+    if (typeof url !== 'string') return '';
+    const t = url.trim();
+    return t.length > 0 ? t : '';
+  }
+
+  /**
+   * Fallback subscription link when API did not return subscriptionUrl.
    */
   getSubscriptionUrl(username) {
-    const subPath = config.vpnPanel.subPath || '/sub';
-    const domain = config.vpnPanel.serverDomain || this.baseUrl;
-    return `${domain}${subPath}/${username}`;
+    const domain = (config.vpnPanel.serverDomain || this.baseUrl || '').replace(/\/+$/, '');
+    let subPath = config.vpnPanel.subPath || '/api/sub';
+    subPath = subPath.startsWith('/') ? subPath : `/${subPath}`;
+    subPath = subPath.replace(/\/+$/, '');
+    return `${domain}${subPath}/${encodeURIComponent(username)}`;
   }
 
   // ── Stats ──────────────────────────────────────────────────────────────────
 
   async getSystemStats() {
-    return this._request('GET', '/system/stats');
+    const raw = await this._request('GET', '/system/stats');
+    return this._unwrapPayload(raw);
   }
 
   async getNodes() {
-    return this._request('GET', '/nodes');
+    const raw = await this._request('GET', '/nodes');
+    return this._unwrapPayload(raw);
   }
 
   async getInbounds() {
-    return this._request('GET', '/inbounds');
+    const raw = await this._request('GET', '/inbounds');
+    return this._unwrapPayload(raw);
   }
 }
 

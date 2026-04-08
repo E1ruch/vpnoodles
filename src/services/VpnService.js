@@ -70,8 +70,8 @@ const VpnService = {
           }
         }
 
-        // Subscription URL — user imports this in VPN client
-        configLink = adapter.getSubscriptionUrl(panelUsername);
+        configLink =
+          adapter.subscriptionUrlFromUser(panelUser) || adapter.getSubscriptionUrl(panelUsername);
       } else if (config.vpnPanel.type === 'marzban') {
         const panelUser = await adapter.createUser(
           panelUsername,
@@ -125,7 +125,12 @@ const VpnService = {
       logger.info('VPN provisioned', { userId, subscriptionId, panelUsername, configLink });
       return vpnConfig;
     } catch (err) {
-      logger.error('VPN provision failed', { error: err.message, userId });
+      logger.error('VPN provision failed', {
+        error: err.message,
+        userId,
+        status: err.response?.status,
+        code: err.code,
+      });
       // Don't throw — subscription is still active, VPN can be provisioned later
     }
   },

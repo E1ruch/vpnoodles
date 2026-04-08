@@ -218,9 +218,7 @@ async function handleTrial(ctx, user) {
 
     // Provision VPN
     const plan = { duration_days: sub.duration_days || 3, traffic_bytes: sub.traffic_limit_bytes };
-    await VpnService.provision(user.id, sub.id, plan).catch((err) =>
-      logger.error('VPN provision failed for trial', { error: err.message }),
-    );
+    await VpnService.provision(user.id, sub.id, plan);
 
     await ctx.editMessageText(
       `🎉 *Пробный период активирован!*\n\n` +

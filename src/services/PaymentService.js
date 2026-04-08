@@ -46,17 +46,9 @@ const PaymentService = {
     const plan = await Plan.findById(payment.plan_id);
     const subscription = await SubscriptionService.activate(payment.user_id, plan.id);
 
-    // 3. Provision VPN
-    try {
-      await VpnService.provision(payment.user_id, subscription.id, plan);
-      await VpnService.enableForUser(payment.user_id);
-    } catch (err) {
-      logger.error('VPN provisioning failed after payment', {
-        paymentId,
-        userId: payment.user_id,
-        error: err.message,
-      });
-    }
+    // 3. Provision VPN (errors are logged inside provision; does not throw)
+    await VpnService.provision(payment.user_id, subscription.id, plan);
+    await VpnService.enableForUser(payment.user_id);
 
     // 4. Apply referral bonus (first payment only)
     await UserService.applyReferralBonus(payment.user_id);
