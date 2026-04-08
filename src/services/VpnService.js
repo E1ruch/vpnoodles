@@ -27,92 +27,107 @@ const VpnService = {
    * Creates the user in the panel and saves config to DB.
    */
   async provision(userId, subscriptionId, plan) {
-    const user = await User.findById(userId);
-    if (!user) throw new Error('User not found');
+    try {
+      // Skip if VPN panel not configured (placeholder URL)
+      if (
+        config.vpnPanel.url === 'https://your-remnawave-panel.com' ||
+        config.vpnPanel.url === 'https://your-panel.com' ||
+        !config.vpnPanel.url
+      ) {
+        logger.warn('VPN panel not configured, skipping provision', { userId });
+        return;
+      }
 
-    const adapter = getAdapter();
-    const panelUsername = `vpn_${user.telegram_id}`;
+      const user = await User.findById(userId);
+      if (!user) throw new Error('User not found');
 
-    let configLink = '';
+      const adapter = getAdapter();
+      const panelUsername = `vpn_${user.telegram_id}`;
 
-    if (config.vpnPanel.type === 'remnawave') {
-      // Check if user already exists in panel (re-subscription case)
-      let panelUser;
-      try {
-        panelUser = await adapter.getUser(panelUsername);
-        // User exists — extend expiry
-        await adapter.extendUser(panelUsername, plan.duration_days);
-        await adapter.enableUser(panelUsername);
-        logger.info('Remnawave user extended', { panelUsername });
-      } catch (err) {
-        if (err.response?.status === 404) {
-          // User doesn't exist — create new
-          panelUser = await adapter.createUser(
-            panelUsername,
-            plan.traffic_bytes || 0,
-            plan.duration_days,
-            String(user.telegram_id),
-          );
-          logger.info('Remnawave user created', { panelUsername });
+      let configLink = '';
+
+      if (config.vpnPanel.type === 'remnawave') {
+        // Check if user already exists in panel (re-subscription case)
+        let panelUser;
+        try {
+          panelUser = await adapter.getUser(panelUsername);
+          // User exists — extend expiry
+          await adapter.extendUser(panelUsername, plan.duration_days);
+          await adapter.enableUser(panelUsername);
+          logger.info('Remnawave user extended', { panelUsername });
+        } catch (err) {
+          if (err.response?.status === 404) {
+            // User doesn't exist — create new
+            panelUser = await adapter.createUser(
+              panelUsername,
+              plan.traffic_bytes || 0,
+              plan.duration_days,
+              String(user.telegram_id),
+            );
+            logger.info('Remnawave user created', { panelUsername });
+          } else {
+            throw err;
+          }
+        }
+
+        // Subscription URL — user imports this in VPN client
+        configLink = adapter.getSubscriptionUrl(panelUsername);
+      } else if (config.vpnPanel.type === 'marzban') {
+        const panelUser = await adapter.createUser(
+          panelUsername,
+          plan.traffic_bytes || 0,
+          plan.duration_days,
+        );
+        configLink = panelUser.subscription_url || panelUser.links?.[0] || '';
+      } else if (config.vpnPanel.type === '3xui') {
+        const uuid = uuidv4();
+        const expiryTime = Date.now() + plan.duration_days * 86400 * 1000;
+        const inboundId = config.vpnPanel.inboundId;
+
+        await adapter.addClient(inboundId, {
+          id: uuid,
+          email: panelUsername,
+          totalGB: plan.traffic_bytes ? plan.traffic_bytes / (1024 * 1024 * 1024) : 0,
+          expiryTime,
+          tgId: String(user.telegram_id),
+          subId: panelUsername,
+        });
+
+        if (config.vpnPanel.serverDomain) {
+          configLink = `${config.vpnPanel.serverDomain}${config.vpnPanel.subPath}/${panelUsername}`;
         } else {
-          throw err;
+          const panelBase = config.vpnPanel.url.replace(/\/[^/]*$/, '');
+          configLink = `${panelBase}${config.vpnPanel.subPath}/${panelUsername}`;
         }
       }
 
-      // Subscription URL — user imports this in VPN client
-      configLink = adapter.getSubscriptionUrl(panelUsername);
-    } else if (config.vpnPanel.type === 'marzban') {
-      const panelUser = await adapter.createUser(
-        panelUsername,
-        plan.traffic_bytes || 0,
-        plan.duration_days,
-      );
-      configLink = panelUser.subscription_url || panelUser.links?.[0] || '';
-    } else if (config.vpnPanel.type === '3xui') {
-      const uuid = uuidv4();
-      const expiryTime = Date.now() + plan.duration_days * 86400 * 1000;
-      const inboundId = config.vpnPanel.inboundId;
+      // Save or update vpn_config in DB
+      const existing = await VpnConfig.findActiveByUserId(userId);
+      let vpnConfig;
 
-      await adapter.addClient(inboundId, {
-        id: uuid,
-        email: panelUsername,
-        totalGB: plan.traffic_bytes ? plan.traffic_bytes / (1024 * 1024 * 1024) : 0,
-        expiryTime,
-        tgId: String(user.telegram_id),
-        subId: panelUsername,
-      });
-
-      if (config.vpnPanel.serverDomain) {
-        configLink = `${config.vpnPanel.serverDomain}${config.vpnPanel.subPath}/${panelUsername}`;
+      if (existing && existing.length > 0) {
+        // Update existing config link
+        vpnConfig = await VpnConfig.update(existing[0].id, {
+          config_link: configLink,
+          status: 'active',
+        });
       } else {
-        const panelBase = config.vpnPanel.url.replace(/\/[^/]*$/, '');
-        configLink = `${panelBase}${config.vpnPanel.subPath}/${panelUsername}`;
+        vpnConfig = await VpnConfig.create({
+          userId,
+          subscriptionId,
+          panelUserId: panelUsername,
+          protocol: config.vpnPanel.type === 'remnawave' ? 'subscription' : 'vless',
+          configLink,
+          serverTag: 'default',
+        });
       }
+
+      logger.info('VPN provisioned', { userId, subscriptionId, panelUsername, configLink });
+      return vpnConfig;
+    } catch (err) {
+      logger.error('VPN provision failed', { error: err.message, userId });
+      // Don't throw — subscription is still active, VPN can be provisioned later
     }
-
-    // Save or update vpn_config in DB
-    const existing = await VpnConfig.findActiveByUserId(userId);
-    let vpnConfig;
-
-    if (existing && existing.length > 0) {
-      // Update existing config link
-      vpnConfig = await VpnConfig.update(existing[0].id, {
-        config_link: configLink,
-        status: 'active',
-      });
-    } else {
-      vpnConfig = await VpnConfig.create({
-        userId,
-        subscriptionId,
-        panelUserId: panelUsername,
-        protocol: config.vpnPanel.type === 'remnawave' ? 'subscription' : 'vless',
-        configLink,
-        serverTag: 'default',
-      });
-    }
-
-    logger.info('VPN provisioned', { userId, subscriptionId, panelUsername, configLink });
-    return vpnConfig;
   },
 
   /**
