@@ -77,11 +77,51 @@ async function createBot() {
   // ── Callback queries ──────────────────────────────────────────────────────
   bot.action('menu', menuHandler);
   bot.action('subscribe', subscribeHandler);
-  bot.action('trial', subscribeHandler); // ← "Попробовать бесплатно"
+  bot.action('trial', subscribeHandler); // "Попробовать бесплатно"
   bot.action('my_vpn', myVpnHandler);
   bot.action('profile', profileHandler);
   bot.action('referral', referralHandler);
+
+  // Stars payments
   bot.action(/^buy_plan_(\d+)$/, subscribeHandler);
+
+  // CryptoPay — show plan detail with payment options
+  bot.action(/^show_plan_(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const planId = parseInt(ctx.match[1], 10);
+    return subscribeHandler.showPlanDetail(ctx, planId);
+  });
+
+  // CryptoPay — show asset picker
+  bot.action(/^buy_crypto_(\d+)$/, subscribeHandler);
+
+  // CryptoPay — handle asset selection
+  bot.action(/^crypto_(\d+)_([A-Z]+)$/, subscribeHandler);
+
+  // CryptoPay — manual check payment status
+  bot.action(/^check_crypto_(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery('Проверяем оплату...');
+    const PaymentService = require('../services/PaymentService');
+    try {
+      const count = await PaymentService.processCryptoPayPaid();
+      if (count > 0) {
+        await ctx.editMessageText(
+          '✅ Оплата подтверждена! Нажмите "Мой VPN" для получения конфигурации.',
+          {
+            ...require('telegraf').Markup.inlineKeyboard([
+              [require('telegraf').Markup.button.callback('📱 Мой VPN', 'my_vpn')],
+            ]),
+          },
+        );
+      } else {
+        await ctx.answerCbQuery('⏳ Оплата ещё не поступила. Попробуйте через минуту.', {
+          show_alert: true,
+        });
+      }
+    } catch (err) {
+      await ctx.answerCbQuery('⚠️ Ошибка проверки. Попробуйте позже.', { show_alert: true });
+    }
+  });
 
   // ── Payments ──────────────────────────────────────────────────────────────
   bot.on('pre_checkout_query', paymentHandler.preCheckout);

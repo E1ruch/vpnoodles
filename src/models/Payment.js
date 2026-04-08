@@ -66,6 +66,29 @@ const Payment = {
     return row;
   },
 
+  async update(id, fields) {
+    const [row] = await db(TABLE)
+      .where({ id })
+      .update({ ...fields, updated_at: db.fn.now() })
+      .returning('*');
+    return row;
+  },
+
+  async findPendingByProvider(provider) {
+    return db(TABLE)
+      .where({ provider, status: 'pending' })
+      .whereNotNull('provider_payment_id')
+      .orderBy('created_at', 'asc');
+  },
+
+  async findRecentPaidByProvider(provider, minutes = 2) {
+    const since = new Date(Date.now() - minutes * 60 * 1000);
+    return db(TABLE)
+      .where({ provider, status: 'paid' })
+      .where('updated_at', '>=', since)
+      .orderBy('updated_at', 'desc');
+  },
+
   // ── Stats ──────────────────────────────────────────────────────────────────
 
   async totalRevenue(currency = 'RUB') {

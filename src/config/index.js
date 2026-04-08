@@ -64,9 +64,11 @@ const config = {
       shopId: process.env.YOOKASSA_SHOP_ID || '',
       secretKey: process.env.YOOKASSA_SECRET_KEY || '',
     },
-    cryptomus: {
-      apiKey: process.env.CRYPTOMUS_API_KEY || '',
-      merchantId: process.env.CRYPTOMUS_MERCHANT_ID || '',
+    // CryptoBot (Crypto Pay) — https://t.me/CryptoBot
+    cryptoPay: {
+      enabled: process.env.CRYPTO_PAY_ENABLED === 'true',
+      token: process.env.CRYPTO_PAY_TOKEN || '',
+      url: process.env.CRYPTO_PAY_URL || 'https://pay.crypt.bot',
     },
   },
 
