@@ -19,6 +19,9 @@ function formatPrice(plan) {
   if (config.payments.starsEnabled && plan.price_stars > 0) {
     parts.push(`${plan.price_stars} ⭐`);
   }
+  if (plan.price_rub > 0) {
+    parts.push(`${(plan.price_rub / 100).toFixed(0)} ₽`);
+  }
   if (config.payments.cryptoPay.enabled && plan.price_usd > 0) {
     parts.push(`$${(plan.price_usd / 100).toFixed(2)}`);
   }
