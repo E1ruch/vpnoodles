@@ -158,6 +158,7 @@ class RemnawaveAdapter {
         status: err.response?.status,
         code: err.code,
         message: err.response?.data?.message || err.message,
+        responseData: err.response?.data,
       });
       throw err;
     }
@@ -203,7 +204,7 @@ class RemnawaveAdapter {
   async getUser(username) {
     const raw = await this._request(
       'GET',
-      `/users/by-username/${encodeURIComponent(username)}`,
+      `/users/${encodeURIComponent(username)}`,
       null,
       null,
       true,
