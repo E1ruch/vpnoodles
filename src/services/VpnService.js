@@ -33,9 +33,9 @@ function getHostname(link) {
 
 function pickNodeLabel(node) {
   const candidates = [
+    node?.name,
     node?.country,
     node?.countryName,
-    node?.name,
     node?.title,
     node?.remark,
     node?.tag,
@@ -211,10 +211,14 @@ const VpnService = {
     const configs = await VpnConfig.findActiveByUserId(userId);
     const adapter = getAdapter();
     let nodeLabelByHost = new Map();
+    let defaultNodeLabel = '';
 
     try {
       const nodes = await adapter.getNodes?.();
       nodeLabelByHost = buildNodeLabelByHost(nodes);
+      if (Array.isArray(nodes) && nodes.length === 1) {
+        defaultNodeLabel = pickNodeLabel(nodes[0]);
+      }
     } catch (err) {
       logger.warn('Failed to load nodes for display labels', { error: err.message });
     }
@@ -223,7 +227,9 @@ const VpnService = {
       configs.map(async (cfg) => {
         let qrCode = null;
         const host = getHostname(cfg.config_link);
-        const serverLabel = host ? nodeLabelByHost.get(host.toLowerCase()) || '' : '';
+        const serverLabel = host
+          ? nodeLabelByHost.get(host.toLowerCase()) || defaultNodeLabel
+          : defaultNodeLabel;
         if (cfg.config_link) {
           try {
             qrCode = await QRCode.toDataURL(cfg.config_link);
