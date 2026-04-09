@@ -5,6 +5,35 @@ const VpnService = require('../../services/VpnService');
 const SubscriptionService = require('../../services/SubscriptionService');
 const logger = require('../../utils/logger');
 
+function protocolLabel(protocol) {
+  const value = String(protocol || '').toLowerCase();
+  if (value === 'subscription') return 'Подписка';
+  if (value === 'vless') return 'VLESS';
+  if (value === 'vmess') return 'VMess';
+  if (value === 'trojan') return 'Trojan';
+  return String(protocol || 'Неизвестно');
+}
+
+function serverLabel(cfg) {
+  const tag = String(cfg.server_tag || '').trim();
+  if (tag && tag.toLowerCase() !== 'default') {
+    return tag;
+  }
+
+  // For subscription links show host instead of technical "default".
+  try {
+    const link = String(cfg.config_link || '').trim();
+    if (link.startsWith('http://') || link.startsWith('https://')) {
+      const url = new URL(link);
+      if (url.hostname) return url.hostname;
+    }
+  } catch {
+    // Ignore URL parse issues and fallback to generic name.
+  }
+
+  return 'Основной сервер';
+}
+
 /**
  * My VPN handler — shows active configs and QR codes
  */
@@ -62,8 +91,8 @@ module.exports = async (ctx) => {
     try {
       const configText =
         `🔑 *Конфигурация #${cfg.id}*\n` +
-        `📡 Протокол: \`${cfg.protocol.toUpperCase()}\`\n` +
-        `🖥 Сервер: \`${cfg.server_tag || 'default'}\`\n\n` +
+        `📡 Протокол: \`${protocolLabel(cfg.protocol)}\`\n` +
+        `🖥 Сервер: \`${serverLabel(cfg)}\`\n\n` +
         `📋 *Ссылка для подключения:*\n` +
         `\`${cfg.config_link || 'Генерируется...'}\``;
 
