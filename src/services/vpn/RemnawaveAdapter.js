@@ -135,11 +135,11 @@ class RemnawaveAdapter {
    * @param {string} [tgId] - Telegram user ID (optional)
    */
   async createUser(username, trafficLimitBytes = 0, expireDays = 30, tgId = '') {
-    const expireAt = new Date(Date.now() + expireDays * 86400 * 1000).toISOString();
+    const expireAtTimestamp = Math.floor((Date.now() + expireDays * 86400 * 1000) / 1000);
 
     const payload = {
       username,
-      expireAt,
+      expire_at: expireAt,
       trafficLimitBytes: trafficLimitBytes || 0,
       // OpenAPI: NO_RESET | DAY | WEEK | MONTH | MONTH_ROLLING (MONTH_DAY is invalid)
       trafficLimitStrategy: trafficLimitBytes ? 'MONTH_ROLLING' : 'NO_RESET',
@@ -158,17 +158,17 @@ class RemnawaveAdapter {
 
     const raw = await this._request('POST', '/users', payload);
     const user = this._unwrapPayload(raw);
-    logger.info('Remnawave user created', { username });
+    logger.info('Remnawave user created', { username, payload });
     return user;
   }
 
   async getUser(username) {
     const raw = await this._request(
       'GET',
-      `/users/${encodeURIComponent(username)}`,
+      `/users/by-username/${encodeURIComponent(username)}`,
       null,
       null,
-      false,
+      true,
     );
     return this._unwrapPayload(raw);
   }
