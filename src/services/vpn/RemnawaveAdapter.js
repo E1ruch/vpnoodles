@@ -26,13 +26,19 @@ class RemnawaveAdapter {
     const axiosOpts = {
       baseURL: `${this.baseUrl}/api`,
       timeout: 15000,
-      headers: { 'Content-Type': 'application/json' },
     };
     if (config.vpnPanel.tlsInsecure) {
       axiosOpts.httpsAgent = new https.Agent({ rejectUnauthorized: false });
     }
 
     this._http = axios.create(axiosOpts);
+    this._http.defaults.transformResponse = [(data) => {
+      try {
+        return JSON.parse(data);
+      } catch {
+        return data;
+      }
+    },];
   }
 
   /** Remnawave wraps many entities as { response: { ... } } */
@@ -107,6 +113,7 @@ class RemnawaveAdapter {
         headers: authHeaders,
       };
       if (data !== null && data !== undefined) {
+        requestConfig.headers['Content-Type'] = 'application/json';
         requestConfig.data = data;
       }
 
@@ -142,7 +149,7 @@ class RemnawaveAdapter {
 
     const payload = {
       username,
-      expire_at: expireAtTimestamp,
+      expireAt: new Date(expireAtTimestamp * 1000).toISOString(),
       trafficLimitBytes: trafficLimitBytes || 0,
       // OpenAPI: NO_RESET | DAY | WEEK | MONTH | MONTH_ROLLING (MONTH_DAY is invalid)
       trafficLimitStrategy: trafficLimitBytes ? 'MONTH_ROLLING' : 'NO_RESET',
