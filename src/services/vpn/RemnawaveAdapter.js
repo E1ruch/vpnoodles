@@ -18,6 +18,7 @@ class RemnawaveAdapter {
     this.baseUrl = config.vpnPanel.url; // e.g. https://your-server.com
     this.username = config.vpnPanel.username;
     this.password = config.vpnPanel.password;
+    this.apiToken = config.vpnPanel.apiToken;
     this.subscriptionToken = config.vpnPanel.subscriptionToken;
     this._token = null;
     this._tokenExpiry = null;
@@ -89,34 +90,12 @@ class RemnawaveAdapter {
     throw lastErr;
   }
 
-  // ── Auth ───────────────────────────────────────────────────────────────────
-
-  async _getToken() {
-    if (this._token && this._tokenExpiry && Date.now() < this._tokenExpiry) {
-      return this._token;
-    }
-
-    const res = await this._withNetworkRetries(
-      () =>
-        this._http.post('/auth/login', {
-          username: this.username,
-          password: this.password,
-        }),
-      'auth/login',
-    );
-
-    // Remnawave returns { accessToken, ... }
-    this._token = res.data.accessToken || res.data.access_token;
-    this._tokenExpiry = Date.now() + 23 * 60 * 60 * 1000; // 23h
-    return this._token;
-  }
-
   async _request(method, path, data = null, params = null, useSubscriptionToken = false) {
     let token;
     if (useSubscriptionToken && this.subscriptionToken) {
       token = this.subscriptionToken;
     } else {
-      token = await this._getToken();
+      token = this.apiToken;
     }
     const authHeaders = { Authorization: `Bearer ${token}` };
 
@@ -134,24 +113,6 @@ class RemnawaveAdapter {
       );
       return res.data;
     } catch (err) {
-      // Re-auth on 401 (only for admin token)
-      if (err.response?.status === 401 && !useSubscriptionToken) {
-        this._token = null;
-        const token2 = await this._getToken();
-        const res2 = await this._withNetworkRetries(
-          () =>
-            this._http({
-              method,
-              url: path,
-              data,
-              params,
-              headers: { Authorization: `Bearer ${token2}` },
-            }),
-          `${method} ${path} (after re-auth)`,
-        );
-        return res2.data;
-      }
-
       logger.error('Remnawave API error', {
         method,
         path,
@@ -207,7 +168,7 @@ class RemnawaveAdapter {
       `/users/${encodeURIComponent(username)}`,
       null,
       null,
-      true,
+      false,
     );
     return this._unwrapPayload(raw);
   }

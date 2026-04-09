@@ -46,6 +46,7 @@ const config = {
     url: process.env.VPN_PANEL_URL || '', // https://your-panel.com (no trailing slash)
     username: process.env.VPN_PANEL_USERNAME || 'admin',
     password: process.env.VPN_PANEL_PASSWORD || '',
+    apiToken: process.env.VPN_API_TOKEN || '', // Remnawave API token from dashboard
     subscriptionToken: process.env.VPN_SUBSCRIPTION_TOKEN || '', // For Remnawave subscription API
     // Public domain for subscription links (can differ from panel URL)
     serverDomain: process.env.VPN_SERVER_DOMAIN || '',
@@ -105,6 +106,9 @@ const config = {
 // ── Validation ────────────────────────────────────────────────────────────────
 function validateConfig(cfg) {
   const required = [['telegram.token', cfg.telegram.token]];
+  if (cfg.vpnPanel.type === 'remnawave') {
+    required.push(['vpnPanel.apiToken', cfg.vpnPanel.apiToken]);
+  }
   const missing = required.filter(([, val]) => !val).map(([key]) => key);
 
   if (missing.length > 0) {
