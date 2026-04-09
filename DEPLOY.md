@@ -97,6 +97,7 @@ VPN_PANEL_URL=https://ваш_vpn_сервер:порт/путь
 VPN_PANEL_USERNAME=логин
 VPN_PANEL_PASSWORD=пароль
 VPN_PANEL_TYPE=3xui
+VPN_SUBSCRIPTION_TOKEN=токен_подписки_если_нужен
 
 # Безопасность — ОБЯЗАТЕЛЬНО поменяйте!
 JWT_SECRET=сгенерируйте_случайную_строку_32_символа

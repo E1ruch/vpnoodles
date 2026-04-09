@@ -46,6 +46,7 @@ const config = {
     url: process.env.VPN_PANEL_URL || '', // https://your-panel.com (no trailing slash)
     username: process.env.VPN_PANEL_USERNAME || 'admin',
     password: process.env.VPN_PANEL_PASSWORD || '',
+    subscriptionToken: process.env.VPN_SUBSCRIPTION_TOKEN || '', // For Remnawave subscription API
     // Public domain for subscription links (can differ from panel URL)
     serverDomain: process.env.VPN_SERVER_DOMAIN || '',
     // Subscription path (Remnawave default: /api/sub, 3x-ui: /sub)

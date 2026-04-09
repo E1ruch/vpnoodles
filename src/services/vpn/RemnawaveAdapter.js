@@ -18,6 +18,7 @@ class RemnawaveAdapter {
     this.baseUrl = config.vpnPanel.url; // e.g. https://your-server.com
     this.username = config.vpnPanel.username;
     this.password = config.vpnPanel.password;
+    this.subscriptionToken = config.vpnPanel.subscriptionToken;
     this._token = null;
     this._tokenExpiry = null;
 
@@ -110,8 +111,13 @@ class RemnawaveAdapter {
     return this._token;
   }
 
-  async _request(method, path, data = null, params = null) {
-    const token = await this._getToken();
+  async _request(method, path, data = null, params = null, useSubscriptionToken = false) {
+    let token;
+    if (useSubscriptionToken && this.subscriptionToken) {
+      token = this.subscriptionToken;
+    } else {
+      token = await this._getToken();
+    }
     const authHeaders = { Authorization: `Bearer ${token}` };
 
     try {
@@ -128,8 +134,8 @@ class RemnawaveAdapter {
       );
       return res.data;
     } catch (err) {
-      // Re-auth on 401
-      if (err.response?.status === 401) {
+      // Re-auth on 401 (only for admin token)
+      if (err.response?.status === 401 && !useSubscriptionToken) {
         this._token = null;
         const token2 = await this._getToken();
         const res2 = await this._withNetworkRetries(
@@ -195,7 +201,13 @@ class RemnawaveAdapter {
   }
 
   async getUser(username) {
-    const raw = await this._request('GET', `/users/by-username/${encodeURIComponent(username)}`);
+    const raw = await this._request(
+      'GET',
+      `/users/by-username/${encodeURIComponent(username)}`,
+      null,
+      null,
+      true,
+    );
     return this._unwrapPayload(raw);
   }
 
