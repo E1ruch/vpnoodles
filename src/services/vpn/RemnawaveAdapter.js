@@ -100,15 +100,18 @@ class RemnawaveAdapter {
     const authHeaders = { Authorization: `Bearer ${token}` };
 
     try {
+      const requestConfig = {
+        method,
+        url: path,
+        params,
+        headers: authHeaders,
+      };
+      if (data !== null && data !== undefined) {
+        requestConfig.data = data;
+      }
+
       const res = await this._withNetworkRetries(
-        () =>
-          this._http({
-            method,
-            url: path,
-            data,
-            params,
-            headers: authHeaders,
-          }),
+        () => this._http(requestConfig),
         `${method} ${path}`,
       );
       return res.data;
@@ -139,7 +142,7 @@ class RemnawaveAdapter {
 
     const payload = {
       username,
-      expire_at: expireAt,
+      expire_at: expireAtTimestamp,
       trafficLimitBytes: trafficLimitBytes || 0,
       // OpenAPI: NO_RESET | DAY | WEEK | MONTH | MONTH_ROLLING (MONTH_DAY is invalid)
       trafficLimitStrategy: trafficLimitBytes ? 'MONTH_ROLLING' : 'NO_RESET',
@@ -158,7 +161,7 @@ class RemnawaveAdapter {
 
     const raw = await this._request('POST', '/users', payload);
     const user = this._unwrapPayload(raw);
-    logger.info('Remnawave user created', { username, payload });
+    logger.info('Remnawave user created', { username });
     return user;
   }
 
@@ -168,8 +171,13 @@ class RemnawaveAdapter {
       `/users/by-username/${encodeURIComponent(username)}`,
       null,
       null,
-      true,
+      false,
     );
+    if (raw === 'null' || raw === null) {
+      const err = new Error('User not found');
+      err.response = { status: 404 };
+      throw err;
+    }
     return this._unwrapPayload(raw);
   }
 
