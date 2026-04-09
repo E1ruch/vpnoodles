@@ -95,7 +95,7 @@ module.exports = async (ctx) => {
       const link = String(cfg.config_link || '').trim();
       const connectRow =
         link.startsWith('http://') || link.startsWith('https://')
-          ? [Markup.button.url('🚀 Подключиться', link)]
+          ? [[Markup.button.url('🚀 Подключиться', link)]]
           : [];
 
       const configText =
