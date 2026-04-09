@@ -92,6 +92,12 @@ module.exports = async (ctx) => {
   // Send each config with QR code
   for (const cfg of configs) {
     try {
+      const link = String(cfg.config_link || '').trim();
+      const connectRow =
+        link.startsWith('http://') || link.startsWith('https://')
+          ? [Markup.button.url('🚀 Подключиться', link)]
+          : [];
+
       const configText =
         `🔑 *Конфигурация #${cfg.id}*\n` +
         `📡 Протокол: \`${protocolLabel(cfg.protocol)}\`\n` +
@@ -108,6 +114,7 @@ module.exports = async (ctx) => {
             caption: configText,
             parse_mode: 'Markdown',
             ...Markup.inlineKeyboard([
+              ...connectRow,
               [Markup.button.callback('🔄 Обновить конфиг', 'my_vpn')],
               [Markup.button.callback('💳 Продлить', 'subscribe')],
             ]),
@@ -117,6 +124,7 @@ module.exports = async (ctx) => {
         await ctx.replyWithMarkdown(
           configText,
           Markup.inlineKeyboard([
+            ...connectRow,
             [Markup.button.callback('🔄 Обновить', 'my_vpn')],
             [Markup.button.callback('💳 Продлить', 'subscribe')],
           ]),
