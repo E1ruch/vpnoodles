@@ -7,7 +7,7 @@ const logger = require('../../utils/logger');
 
 function protocolLabel(protocol) {
   const value = String(protocol || '').toLowerCase();
-  if (value === 'subscription') return 'Подписка';
+  if (value === 'subscription') return 'VLESS (подписка)';
   if (value === 'vless') return 'VLESS';
   if (value === 'vmess') return 'VMess';
   if (value === 'trojan') return 'Trojan';
@@ -15,6 +15,9 @@ function protocolLabel(protocol) {
 }
 
 function serverLabel(cfg) {
+  const fromNode = String(cfg.server_label || '').trim();
+  if (fromNode) return fromNode;
+
   const tag = String(cfg.server_tag || '').trim();
   if (tag && tag.toLowerCase() !== 'default') {
     return tag;

@@ -21,6 +21,75 @@ function getAdapter() {
   }
 }
 
+function getHostname(link) {
+  try {
+    const value = String(link || '').trim();
+    if (!value.startsWith('http://') && !value.startsWith('https://')) return '';
+    return new URL(value).hostname || '';
+  } catch {
+    return '';
+  }
+}
+
+function pickNodeLabel(node) {
+  const candidates = [
+    node?.country,
+    node?.countryName,
+    node?.name,
+    node?.title,
+    node?.remark,
+    node?.tag,
+    node?.hostname,
+  ];
+  for (const c of candidates) {
+    const v = String(c || '').trim();
+    if (v) return v;
+  }
+  return '';
+}
+
+function addHost(hostsSet, raw) {
+  const value = String(raw || '').trim();
+  if (!value) return;
+  if (value.startsWith('http://') || value.startsWith('https://')) {
+    const h = getHostname(value);
+    if (h) hostsSet.add(h.toLowerCase());
+    return;
+  }
+  const normalized = value.replace(/^\*\./, '').split('/')[0].trim();
+  if (normalized) hostsSet.add(normalized.toLowerCase());
+}
+
+function extractNodeHosts(node) {
+  const hosts = new Set();
+  const singleFields = ['host', 'hostname', 'domain', 'address', 'server'];
+  const arrayFields = ['hosts', 'domains', 'addresses', 'servers', 'urls'];
+
+  for (const field of singleFields) addHost(hosts, node?.[field]);
+  for (const field of arrayFields) {
+    const arr = node?.[field];
+    if (Array.isArray(arr)) {
+      for (const item of arr) addHost(hosts, item);
+    }
+  }
+
+  return hosts;
+}
+
+function buildNodeLabelByHost(nodes) {
+  const map = new Map();
+  const list = Array.isArray(nodes) ? nodes : [];
+  for (const node of list) {
+    const label = pickNodeLabel(node);
+    if (!label) continue;
+    const hosts = extractNodeHosts(node);
+    for (const h of hosts) {
+      if (!map.has(h)) map.set(h, label);
+    }
+  }
+  return map;
+}
+
 const VpnService = {
   /**
    * Provision a new VPN config for a user after subscription activation.
@@ -140,10 +209,21 @@ const VpnService = {
    */
   async getConfigsForUser(userId) {
     const configs = await VpnConfig.findActiveByUserId(userId);
+    const adapter = getAdapter();
+    let nodeLabelByHost = new Map();
+
+    try {
+      const nodes = await adapter.getNodes?.();
+      nodeLabelByHost = buildNodeLabelByHost(nodes);
+    } catch (err) {
+      logger.warn('Failed to load nodes for display labels', { error: err.message });
+    }
 
     return Promise.all(
       configs.map(async (cfg) => {
         let qrCode = null;
+        const host = getHostname(cfg.config_link);
+        const serverLabel = host ? nodeLabelByHost.get(host.toLowerCase()) || '' : '';
         if (cfg.config_link) {
           try {
             qrCode = await QRCode.toDataURL(cfg.config_link);
@@ -151,7 +231,7 @@ const VpnService = {
             // QR generation is non-critical
           }
         }
-        return { ...cfg, qrCode };
+        return { ...cfg, qrCode, server_label: serverLabel };
       }),
     );
   },
