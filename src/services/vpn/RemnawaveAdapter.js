@@ -146,13 +146,15 @@ class RemnawaveAdapter {
    */
   async createUser(username, trafficLimitBytes = 0, expireDays = 30, tgId = '') {
     const expireAtTimestamp = Math.floor((Date.now() + expireDays * 86400 * 1000) / 1000);
+    const trafficLimit = Number(trafficLimitBytes);
+    const normalizedTrafficLimit = Number.isFinite(trafficLimit) && trafficLimit > 0 ? trafficLimit : 0;
 
     const payload = {
       username,
       expireAt: new Date(expireAtTimestamp * 1000).toISOString(),
-      trafficLimitBytes: trafficLimitBytes || 0,
+      trafficLimitBytes: normalizedTrafficLimit,
       // OpenAPI: NO_RESET | DAY | WEEK | MONTH | MONTH_ROLLING (MONTH_DAY is invalid)
-      trafficLimitStrategy: trafficLimitBytes ? 'MONTH_ROLLING' : 'NO_RESET',
+      trafficLimitStrategy: normalizedTrafficLimit > 0 ? 'MONTH_ROLLING' : 'NO_RESET',
       status: 'ACTIVE',
     };
 
@@ -161,7 +163,12 @@ class RemnawaveAdapter {
       payload.telegramId = tid;
     }
 
-    const squads = config.vpnPanel.internalSquadUuids || [];
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const configuredSquads = config.vpnPanel.internalSquadUuids || [];
+    const squads = configuredSquads.filter((id) => uuidRe.test(String(id)));
+    if (configuredSquads.length > squads.length) {
+      logger.warn('Ignoring invalid VPN internal squad UUIDs');
+    }
     if (squads.length > 0) {
       payload.activeInternalSquads = squads;
     }
