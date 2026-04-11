@@ -32,13 +32,15 @@ class RemnawaveAdapter {
     }
 
     this._http = axios.create(axiosOpts);
-    this._http.defaults.transformResponse = [(data) => {
-      try {
-        return JSON.parse(data);
-      } catch {
-        return data;
-      }
-    },];
+    this._http.defaults.transformResponse = [
+      (data) => {
+        try {
+          return JSON.parse(data);
+        } catch {
+          return data;
+        }
+      },
+    ];
   }
 
   /** Remnawave wraps many entities as { response: { ... } } */
@@ -147,7 +149,8 @@ class RemnawaveAdapter {
   async createUser(username, trafficLimitBytes = 0, expireDays = 30, tgId = '') {
     const expireAtTimestamp = Math.floor((Date.now() + expireDays * 86400 * 1000) / 1000);
     const trafficLimit = Number(trafficLimitBytes);
-    const normalizedTrafficLimit = Number.isFinite(trafficLimit) && trafficLimit > 0 ? trafficLimit : 0;
+    const normalizedTrafficLimit =
+      Number.isFinite(trafficLimit) && trafficLimit > 0 ? trafficLimit : 0;
 
     const payload = {
       username,
