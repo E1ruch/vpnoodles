@@ -41,19 +41,58 @@ class RemnawaveAdapter {
     },];
   }
 
-  /** Remnawave wraps many entities as { response: { ... } } */
+  /**
+   * Remnawave wraps many entities as { response: { ... } }; some versions nest twice.
+   */
   _unwrapPayload(data) {
-    if (
-      data &&
-      typeof data === 'object' &&
-      Object.prototype.hasOwnProperty.call(data, 'response') &&
-      data.response !== null &&
-      typeof data.response === 'object' &&
-      !Array.isArray(data.response)
-    ) {
-      return data.response;
+    let cur = data;
+    for (let depth = 0; depth < 5; depth++) {
+      if (
+        cur &&
+        typeof cur === 'object' &&
+        Object.prototype.hasOwnProperty.call(cur, 'response') &&
+        cur.response !== null &&
+        typeof cur.response === 'object' &&
+        !Array.isArray(cur.response)
+      ) {
+        cur = cur.response;
+      } else {
+        break;
+      }
     }
-    return data;
+    return cur;
+  }
+
+  /**
+   * User id for /users/{id} paths — API may use uuid, id, or nest under user/data.
+   */
+  _panelUserId(user) {
+    if (!user || typeof user !== 'object') return null;
+    const tryObj = (o) => {
+      if (!o || typeof o !== 'object') return null;
+      const candidates = [o.uuid, o.id, o.userUuid, o.user_uuid];
+      for (const c of candidates) {
+        if (c != null && String(c).trim() !== '') return String(c).trim();
+      }
+      return null;
+    };
+    return (
+      tryObj(user) ||
+      tryObj(user.user) ||
+      tryObj(user.data) ||
+      null
+    );
+  }
+
+  _usersPath(user) {
+    const id = this._panelUserId(user);
+    if (!id) {
+      const keys = user && typeof user === 'object' ? Object.keys(user) : [];
+      logger.error('Remnawave user object missing uuid/id', { keys });
+      const err = new Error('Remnawave user object missing uuid/id');
+      throw err;
+    }
+    return `/users/${encodeURIComponent(id)}`;
   }
 
   /** No HTTP response — connection dropped, timeout, reset, etc. */
@@ -273,22 +312,22 @@ class RemnawaveAdapter {
 
   async enableUser(username) {
     const user = await this.getUser(username);
-    return this._request('PATCH', `/users/${user.uuid}`, { status: 'ACTIVE' });
+    return this._request('PATCH', this._usersPath(user), { status: 'ACTIVE' });
   }
 
   async disableUser(username) {
     const user = await this.getUser(username);
-    return this._request('PATCH', `/users/${user.uuid}`, { status: 'DISABLED' });
+    return this._request('PATCH', this._usersPath(user), { status: 'DISABLED' });
   }
 
   async deleteUser(username) {
     const user = await this.getUser(username);
-    return this._request('DELETE', `/users/${user.uuid}`);
+    return this._request('DELETE', this._usersPath(user));
   }
 
   async resetUserTraffic(username) {
     const user = await this.getUser(username);
-    return this._request('POST', `/users/${user.uuid}/reset-traffic`);
+    return this._request('POST', `${this._usersPath(user)}/reset-traffic`);
   }
 
   /**
@@ -301,7 +340,7 @@ class RemnawaveAdapter {
     const base = currentExpiry > Date.now() ? currentExpiry : Date.now();
     const newExpireAt = new Date(base + days * 86400 * 1000).toISOString();
     const body = { expireAt: newExpireAt, ...this._patchFromPlanMeta(meta) };
-    return this._request('PATCH', `/users/${user.uuid}`, body);
+    return this._request('PATCH', this._usersPath(user), body);
   }
 
   /**
