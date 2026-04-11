@@ -96,6 +96,74 @@ class RemnawaveAdapter {
     throw lastErr;
   }
 
+  /**
+   * Normalized fields from panel user object (camelCase or snake_case).
+   */
+  snapshotFromUser(user) {
+    if (!user || typeof user !== 'object') {
+      return {
+        tag: '',
+        hwidDeviceLimit: null,
+        usedTrafficBytes: null,
+        trafficLimitBytes: null,
+        expireAt: null,
+      };
+    }
+    const used =
+      user.usedTrafficBytes ??
+      user.used_traffic_bytes ??
+      user.consumedTrafficBytes ??
+      null;
+    const tlim = user.trafficLimitBytes ?? user.traffic_limit_bytes ?? null;
+    return {
+      tag: user.tag != null ? String(user.tag).trim() : '',
+      hwidDeviceLimit:
+        user.hwidDeviceLimit !== undefined && user.hwidDeviceLimit !== null
+          ? user.hwidDeviceLimit
+          : user.hwid_device_limit !== undefined
+            ? user.hwid_device_limit
+            : null,
+      usedTrafficBytes: typeof used === 'number' && Number.isFinite(used) ? used : null,
+      trafficLimitBytes: typeof tlim === 'number' && Number.isFinite(tlim) ? tlim : null,
+      expireAt: user.expireAt || user.expire_at || null,
+    };
+  }
+
+  _applyCreateMeta(payload, meta) {
+    if (!meta || typeof meta !== 'object') return;
+    if (meta.tag != null && String(meta.tag).trim() !== '') {
+      payload.tag = String(meta.tag).trim().slice(0, 128);
+    }
+    const lim = meta.hwidDeviceLimit;
+    if (lim != null && Number.isFinite(Number(lim)) && Number(lim) > 0) {
+      payload.hwidDeviceLimit = Math.min(65535, Math.floor(Number(lim)));
+    }
+    if (meta.description != null && String(meta.description).trim() !== '') {
+      payload.description = String(meta.description).trim().slice(0, 512);
+    }
+  }
+
+  /** Fields for PATCH /users/{uuid} (renewal / sync with plan). */
+  _patchFromPlanMeta(meta) {
+    if (!meta || typeof meta !== 'object') return {};
+    const out = {};
+    if (meta.tag != null && String(meta.tag).trim() !== '') {
+      out.tag = String(meta.tag).trim().slice(0, 128);
+    }
+    const lim = meta.hwidDeviceLimit;
+    if (lim != null && Number.isFinite(Number(lim)) && Number(lim) > 0) {
+      out.hwidDeviceLimit = Math.min(65535, Math.floor(Number(lim)));
+    }
+    if (meta.trafficLimitBytes !== undefined) {
+      const t = Number(meta.trafficLimitBytes);
+      if (Number.isFinite(t) && t >= 0) {
+        out.trafficLimitBytes = t;
+        out.trafficLimitStrategy = t > 0 ? 'MONTH_ROLLING' : 'NO_RESET';
+      }
+    }
+    return out;
+  }
+
   async _request(method, path, data = null, params = null, useSubscriptionToken = false) {
     let token;
     if (useSubscriptionToken && this.subscriptionToken) {
@@ -143,8 +211,9 @@ class RemnawaveAdapter {
    * @param {number} trafficLimitBytes - 0 = unlimited
    * @param {number} expireDays - days until expiry
    * @param {string} [tgId] - Telegram user ID (optional)
+   * @param {object} [meta] - tag, hwidDeviceLimit, description (panel user tag & HWID limit)
    */
-  async createUser(username, trafficLimitBytes = 0, expireDays = 30, tgId = '') {
+  async createUser(username, trafficLimitBytes = 0, expireDays = 30, tgId = '', meta = {}) {
     const expireAtTimestamp = Math.floor((Date.now() + expireDays * 86400 * 1000) / 1000);
     const trafficLimit = Number(trafficLimitBytes);
     const normalizedTrafficLimit = Number.isFinite(trafficLimit) && trafficLimit > 0 ? trafficLimit : 0;
@@ -162,6 +231,8 @@ class RemnawaveAdapter {
     if (!Number.isNaN(tid)) {
       payload.telegramId = tid;
     }
+
+    this._applyCreateMeta(payload, meta);
 
     const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     const configuredSquads = config.vpnPanel.internalSquadUuids || [];
@@ -222,13 +293,15 @@ class RemnawaveAdapter {
 
   /**
    * Extend user expiry by N days from now (or from current expiry if still active).
+   * @param {object} [meta] - optional tag, hwidDeviceLimit, trafficLimitBytes (sync with plan)
    */
-  async extendUser(username, days) {
+  async extendUser(username, days, meta = {}) {
     const user = await this.getUser(username);
     const currentExpiry = user.expireAt ? new Date(user.expireAt).getTime() : Date.now();
     const base = currentExpiry > Date.now() ? currentExpiry : Date.now();
     const newExpireAt = new Date(base + days * 86400 * 1000).toISOString();
-    return this._request('PATCH', `/users/${user.uuid}`, { expireAt: newExpireAt });
+    const body = { expireAt: newExpireAt, ...this._patchFromPlanMeta(meta) };
+    return this._request('PATCH', `/users/${user.uuid}`, body);
   }
 
   /**

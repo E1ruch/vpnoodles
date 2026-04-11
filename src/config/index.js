@@ -40,29 +40,24 @@ const config = {
     ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
   },
 
-  // ── VPN Panel ─────────────────────────────────────────────────────────────
+  // ── VPN Panel — Remnawave only ──────────────────────────────────────────────
   vpnPanel: {
-    type: process.env.VPN_PANEL_TYPE || 'remnawave', // remnawave | marzban | 3xui
     url: process.env.VPN_PANEL_URL || '', // https://your-panel.com (no trailing slash)
     username: process.env.VPN_PANEL_USERNAME || 'admin',
     password: process.env.VPN_PANEL_PASSWORD || '',
     apiToken: process.env.VPN_API_TOKEN || '', // Remnawave API token from dashboard
-    subscriptionToken: process.env.VPN_SUBSCRIPTION_TOKEN || '', // For Remnawave subscription API
+    subscriptionToken: process.env.VPN_SUBSCRIPTION_TOKEN || '', // subscription API (if required)
     // Public domain for subscription links (can differ from panel URL)
     serverDomain: process.env.VPN_SERVER_DOMAIN || '',
-    // Subscription path (Remnawave default: /api/sub, 3x-ui: /sub)
     subPath: process.env.VPN_SUB_PATH || '/api/sub',
-    // Legacy / docs only — current Remnawave API uses internal squads (UUIDs), see VPN_INTERNAL_SQUAD_UUIDS
-    inboundTags: process.env.VPN_INBOUND_TAGS || '',
+    // Optional prefix for user tags sent to the panel (e.g. "shop" → shop-basic)
+    userTagPrefix: (process.env.VPN_USER_TAG_PREFIX || '').trim(),
     // Remnawave: comma-separated internal squad UUIDs for new users (optional)
     internalSquadUuids: (process.env.VPN_INTERNAL_SQUAD_UUIDS || '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
-    // Set true only for self-signed TLS to the panel (default: verify certificate)
     tlsInsecure: process.env.VPN_PANEL_TLS_INSECURE === 'true',
-    // 3x-ui specific: inbound ID number
-    inboundId: parseInt(process.env.VPN_INBOUND_ID, 10) || 1,
   },
 
   // ── Payments ──────────────────────────────────────────────────────────────
@@ -105,10 +100,7 @@ const config = {
 
 // ── Validation ────────────────────────────────────────────────────────────────
 function validateConfig(cfg) {
-  const required = [['telegram.token', cfg.telegram.token]];
-  if (cfg.vpnPanel.type === 'remnawave') {
-    required.push(['vpnPanel.apiToken', cfg.vpnPanel.apiToken]);
-  }
+  const required = [['telegram.token', cfg.telegram.token], ['vpnPanel.apiToken', cfg.vpnPanel.apiToken]];
   const missing = required.filter(([, val]) => !val).map(([key]) => key);
 
   if (missing.length > 0) {

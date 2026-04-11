@@ -37,8 +37,7 @@ vpnoodles/
 │   │   ├── VpnService.js         # Фасад над VPN-панелью
 │   │   ├── PaymentService.js     # Платежи (Stars, YooKassa, Cryptomus)
 │   │   └── vpn/
-│   │       ├── MarzbanAdapter.js # Адаптер для Marzban API
-│   │       └── ThreeXuiAdapter.js# Адаптер для 3x-ui API
+│   │       └── RemnawaveAdapter.js # Remnawave Panel API
 │   ├── models/
 │   │   ├── User.js               # CRUD пользователей
 │   │   ├── Plan.js               # Тарифные планы
@@ -132,8 +131,8 @@ npm run dev
 | `BOT_TOKEN`      | Токен от @BotFather                  |
 | `ADMIN_IDS`      | Telegram ID администраторов          |
 | `BOT_MODE`       | `polling` (dev) или `webhook` (prod) |
-| `VPN_PANEL_TYPE` | `marzban` или `3xui`                 |
-| `VPN_PANEL_URL`  | URL вашей VPN-панели                 |
+| `VPN_API_TOKEN`  | API-токен Remnawave                  |
+| `VPN_PANEL_URL`  | URL панели Remnawave                 |
 | `STARS_ENABLED`  | Включить оплату Telegram Stars       |
 
 ---
@@ -148,13 +147,9 @@ npm run dev
 
 ---
 
-## 🔌 VPN Панели
+## 🔌 VPN-панель
 
-| Панель  | Статус         | Протоколы                |
-| ------- | -------------- | ------------------------ |
-| Marzban | ✅ Готово      | VLESS, VMess, Trojan, SS |
-| 3x-ui   | ✅ Готово      | VLESS, VMess, Trojan, SS |
-| Outline | 🔧 Планируется | Shadowsocks              |
+Поддерживается только **Remnawave** (подписка, internal squads, теги и лимит устройств на стороне панели).
 
 ---
 

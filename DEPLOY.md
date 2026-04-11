@@ -96,8 +96,7 @@ REDIS_PORT=6379
 VPN_PANEL_URL=https://ваш_vpn_сервер:порт/путь
 VPN_PANEL_USERNAME=логин
 VPN_PANEL_PASSWORD=пароль
-VPN_API_TOKEN=токен_из_админ_дашборда
-VPN_PANEL_TYPE=3xui
+VPN_API_TOKEN=токен_из_админ_дашборда_Remnawave
 VPN_SUBSCRIPTION_TOKEN=токен_подписки_если_нужен
 
 # Безопасность — ОБЯЗАТЕЛЬНО поменяйте!

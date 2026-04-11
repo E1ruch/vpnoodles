@@ -14,9 +14,24 @@ function protocolLabel(protocol) {
   return String(protocol || 'Неизвестно');
 }
 
+function formatTrafficUsed(bytes) {
+  if (bytes == null || !Number.isFinite(Number(bytes))) return '';
+  const b = Number(bytes);
+  if (b < 1024) return `${Math.round(b)} Б`;
+  const kb = b / 1024;
+  if (kb < 1024) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} КБ`;
+  const mb = b / (1024 * 1024);
+  if (mb < 1024) return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} МБ`;
+  const gb = b / (1024 * 1024 * 1024);
+  return `${gb < 10 ? gb.toFixed(2) : gb.toFixed(1)} ГБ`;
+}
+
 function serverLabel(cfg) {
   const fromNode = String(cfg.server_label || '').trim();
   if (fromNode) return fromNode;
+
+  const fromPanelTag = String(cfg.panel_snapshot?.tag || '').trim();
+  if (fromPanelTag) return fromPanelTag;
 
   const tag = String(cfg.server_tag || '').trim();
   if (tag && tag.toLowerCase() !== 'default') {
@@ -98,11 +113,29 @@ module.exports = async (ctx) => {
           ? [[Markup.button.url('🚀 Подключиться', link)]]
           : [];
 
+      const snap = cfg.panel_snapshot;
+      let panelExtra = '';
+      if (snap) {
+        if (snap.hwidDeviceLimit != null && snap.hwidDeviceLimit !== '') {
+          panelExtra += `\n📱 Лимит устройств (панель): ${snap.hwidDeviceLimit}`;
+        }
+        if (snap.usedTrafficBytes != null) {
+          const u = formatTrafficUsed(snap.usedTrafficBytes);
+          if (u) {
+            panelExtra += `\n📊 Использовано трафика: ${u}`;
+            if (snap.trafficLimitBytes != null && snap.trafficLimitBytes > 0) {
+              panelExtra += ` / лимит ${formatTrafficUsed(snap.trafficLimitBytes)}`;
+            }
+          }
+        }
+      }
+
       const configText =
         `🔑 *Конфигурация #${cfg.id}*\n` +
         `📡 Протокол: \`${protocolLabel(cfg.protocol)}\`\n` +
-        `🖥 Сервер: \`${serverLabel(cfg)}\`\n\n` +
-        `📋 *Ссылка для подключения:*\n` +
+        `🖥 Сервер: \`${serverLabel(cfg)}\`\n` +
+        `${panelExtra ? `${panelExtra}\n` : ''}` +
+        `\n📋 *Ссылка для подключения:*\n` +
         `\`${cfg.config_link || 'Генерируется...'}\``;
 
       if (cfg.qrCode) {

@@ -93,7 +93,7 @@ exports.up = async function (knex) {
     t.increments('id').primary();
     t.bigInteger('user_id').notNullable().references('id').inTable('users').onDelete('CASCADE');
     t.integer('subscription_id').references('id').inTable('subscriptions').onDelete('SET NULL');
-    t.string('panel_user_id', 256); // ID in VPN panel (Marzban/3x-ui)
+    t.string('panel_user_id', 256); // username in Remnawave panel
     t.string('protocol', 32).notNullable().defaultTo('vless'); // vless | vmess | trojan | ss
     t.text('config_link'); // vless:// or vmess:// link
     t.text('config_json'); // full JSON config

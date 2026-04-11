@@ -1,24 +1,46 @@
 'use strict';
 
-const { v4: uuidv4 } = require('uuid');
 const QRCode = require('qrcode');
 const config = require('../config');
 const VpnConfig = require('../models/VpnConfig');
 const User = require('../models/User');
 const logger = require('../utils/logger');
+const adapter = require('./vpn/RemnawaveAdapter');
 
-// ── Load the correct panel adapter ────────────────────────────────────────────
-function getAdapter() {
-  switch (config.vpnPanel.type) {
-    case 'remnawave':
-      return require('./vpn/RemnawaveAdapter');
-    case 'marzban':
-      return require('./vpn/MarzbanAdapter');
-    case '3xui':
-      return require('./vpn/ThreeXuiAdapter');
-    default:
-      throw new Error(`Unknown VPN panel type: ${config.vpnPanel.type}`);
+/** Tag, HWID limit, traffic — synced with Remnawave from plan (and optional VPN_USER_TAG_PREFIX). */
+function buildPanelMetaFromPlan(plan) {
+  if (!plan) return {};
+  const prefix = (config.vpnPanel.userTagPrefix || '').trim();
+  const slug = plan.slug != null ? String(plan.slug).trim() : '';
+  let tag = '';
+  if (prefix && slug) tag = `${prefix}-${slug}`;
+  else if (slug) tag = slug;
+  else if (prefix) tag = prefix;
+
+  const meta = {};
+  if (tag) meta.tag = tag.slice(0, 128);
+
+  const md = plan.max_devices;
+  if (md != null && Number.isFinite(Number(md)) && Number(md) > 0) {
+    meta.hwidDeviceLimit = Math.min(65535, Math.floor(Number(md)));
   }
+
+  const tb = plan.traffic_bytes;
+  if (tb !== undefined && tb !== null) {
+    const t = Number(tb);
+    if (Number.isFinite(t) && t >= 0) meta.trafficLimitBytes = t;
+  }
+
+  if (plan.name) meta.description = `VPNoodles — ${String(plan.name).slice(0, 480)}`;
+
+  return meta;
+}
+
+function serverTagFromPanelUser(panelUser, plan) {
+  const snap = adapter.snapshotFromUser(panelUser);
+  if (snap.tag) return String(snap.tag).slice(0, 64);
+  if (plan?.slug) return String(plan.slug).slice(0, 64);
+  return 'default';
 }
 
 function getHostname(link) {
@@ -97,7 +119,6 @@ const VpnService = {
    */
   async provision(userId, subscriptionId, plan) {
     try {
-      // Skip if VPN panel not configured (placeholder URL)
       if (
         config.vpnPanel.url === 'https://your-remnawave-panel.com' ||
         config.vpnPanel.url === 'https://your-panel.com' ||
@@ -110,84 +131,54 @@ const VpnService = {
       const user = await User.findById(userId);
       if (!user) throw new Error('User not found');
 
-      const adapter = getAdapter();
       const panelUsername = `vpn_${user.telegram_id}`;
+      const panelMeta = buildPanelMetaFromPlan(plan);
 
       let configLink = '';
+      let panelUser;
 
-      if (config.vpnPanel.type === 'remnawave') {
-        // Check if user already exists in panel (re-subscription case)
-        let panelUser;
-        try {
-          panelUser = await adapter.getUser(panelUsername);
-          // User exists — extend expiry
-          await adapter.extendUser(panelUsername, plan.duration_days);
-          await adapter.enableUser(panelUsername);
-          logger.info('Remnawave user extended', { panelUsername });
-        } catch (err) {
-          if (err.response?.status === 404) {
-            // User doesn't exist — create new
-            panelUser = await adapter.createUser(
-              panelUsername,
-              plan.traffic_bytes || 0,
-              plan.duration_days,
-              String(user.telegram_id),
-            );
-            logger.info('Remnawave user created', { panelUsername });
-          } else {
-            throw err;
-          }
-        }
-
-        configLink =
-          adapter.subscriptionUrlFromUser(panelUser) || adapter.getSubscriptionUrl(panelUsername);
-      } else if (config.vpnPanel.type === 'marzban') {
-        const panelUser = await adapter.createUser(
-          panelUsername,
-          plan.traffic_bytes || 0,
-          plan.duration_days,
-        );
-        configLink = panelUser.subscription_url || panelUser.links?.[0] || '';
-      } else if (config.vpnPanel.type === '3xui') {
-        const uuid = uuidv4();
-        const expiryTime = Date.now() + plan.duration_days * 86400 * 1000;
-        const inboundId = config.vpnPanel.inboundId;
-
-        await adapter.addClient(inboundId, {
-          id: uuid,
-          email: panelUsername,
-          totalGB: plan.traffic_bytes ? plan.traffic_bytes / (1024 * 1024 * 1024) : 0,
-          expiryTime,
-          tgId: String(user.telegram_id),
-          subId: panelUsername,
-        });
-
-        if (config.vpnPanel.serverDomain) {
-          configLink = `${config.vpnPanel.serverDomain}${config.vpnPanel.subPath}/${panelUsername}`;
+      try {
+        panelUser = await adapter.getUser(panelUsername);
+        await adapter.extendUser(panelUsername, plan.duration_days, panelMeta);
+        await adapter.enableUser(panelUsername);
+        logger.info('Remnawave user extended', { panelUsername });
+      } catch (err) {
+        if (err.response?.status === 404) {
+          panelUser = await adapter.createUser(
+            panelUsername,
+            plan.traffic_bytes || 0,
+            plan.duration_days,
+            String(user.telegram_id),
+            panelMeta,
+          );
+          logger.info('Remnawave user created', { panelUsername });
         } else {
-          const panelBase = config.vpnPanel.url.replace(/\/[^/]*$/, '');
-          configLink = `${panelBase}${config.vpnPanel.subPath}/${panelUsername}`;
+          throw err;
         }
       }
 
-      // Save or update vpn_config in DB
+      configLink =
+        adapter.subscriptionUrlFromUser(panelUser) || adapter.getSubscriptionUrl(panelUsername);
+
+      const serverTag = serverTagFromPanelUser(panelUser, plan);
+
       const existing = await VpnConfig.findActiveByUserId(userId);
       let vpnConfig;
 
       if (existing && existing.length > 0) {
-        // Update existing config link
         vpnConfig = await VpnConfig.update(existing[0].id, {
           config_link: configLink,
           status: 'active',
+          server_tag: serverTag,
         });
       } else {
         vpnConfig = await VpnConfig.create({
           userId,
           subscriptionId,
           panelUserId: panelUsername,
-          protocol: config.vpnPanel.type === 'remnawave' ? 'subscription' : 'vless',
+          protocol: 'subscription',
           configLink,
-          serverTag: 'default',
+          serverTag,
         });
       }
 
@@ -200,7 +191,6 @@ const VpnService = {
         status: err.response?.status,
         code: err.code,
       });
-      // Don't throw — subscription is still active, VPN can be provisioned later
     }
   },
 
@@ -209,12 +199,11 @@ const VpnService = {
    */
   async getConfigsForUser(userId) {
     const configs = await VpnConfig.findActiveByUserId(userId);
-    const adapter = getAdapter();
     let nodeLabelByHost = new Map();
     let defaultNodeLabel = '';
 
     try {
-      const nodes = await adapter.getNodes?.();
+      const nodes = await adapter.getNodes();
       nodeLabelByHost = buildNodeLabelByHost(nodes);
       if (Array.isArray(nodes) && nodes.length === 1) {
         defaultNodeLabel = pickNodeLabel(nodes[0]);
@@ -230,6 +219,18 @@ const VpnService = {
         const serverLabel = host
           ? nodeLabelByHost.get(host.toLowerCase()) || defaultNodeLabel
           : defaultNodeLabel;
+
+        let panel_snapshot = null;
+        try {
+          const panelUser = await adapter.getUser(cfg.panel_user_id);
+          panel_snapshot = adapter.snapshotFromUser(panelUser);
+        } catch (err) {
+          logger.warn('Failed to refresh user from panel', {
+            panelUserId: cfg.panel_user_id,
+            error: err.message,
+          });
+        }
+
         if (cfg.config_link) {
           try {
             qrCode = await QRCode.toDataURL(cfg.config_link);
@@ -237,7 +238,7 @@ const VpnService = {
             // QR generation is non-critical
           }
         }
-        return { ...cfg, qrCode, server_label: serverLabel };
+        return { ...cfg, qrCode, server_label: serverLabel, panel_snapshot };
       }),
     );
   },
@@ -247,7 +248,6 @@ const VpnService = {
    */
   async disableForUser(userId) {
     const configs = await VpnConfig.findActiveByUserId(userId);
-    const adapter = getAdapter();
 
     for (const cfg of configs) {
       try {
@@ -264,7 +264,6 @@ const VpnService = {
    */
   async enableForUser(userId) {
     const configs = await VpnConfig.findActiveByUserId(userId);
-    const adapter = getAdapter();
 
     for (const cfg of configs) {
       try {
@@ -281,7 +280,6 @@ const VpnService = {
    */
   async extendInPanel(userId, days) {
     const configs = await VpnConfig.findActiveByUserId(userId);
-    const adapter = getAdapter();
 
     for (const cfg of configs) {
       try {
@@ -293,8 +291,7 @@ const VpnService = {
   },
 
   async getSystemStats() {
-    const adapter = getAdapter();
-    return adapter.getSystemStats?.();
+    return adapter.getSystemStats();
   },
 };
 
