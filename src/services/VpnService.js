@@ -7,230 +7,166 @@ const User = require('../models/User');
 const logger = require('../utils/logger');
 const adapter = require('./vpn/RemnawaveAdapter');
 
-/** Tag, HWID limit, traffic — synced with Remnawave from plan (and optional VPN_USER_TAG_PREFIX). */
-function buildPanelMetaFromPlan(plan) {
-  if (!plan) return {};
-  const prefix = (config.vpnPanel.userTagPrefix || '').trim();
-  const slug = plan.slug != null ? String(plan.slug).trim() : '';
-  let tag = '';
-  if (prefix && slug) tag = `${prefix}-${slug}`;
-  else if (slug) tag = slug;
-  else if (prefix) tag = prefix;
-
+/**
+ * Build panel meta (tag, description, trafficLimitBytes) from a plan object.
+ * For trial plans — use the dedicated trial tag from config.
+ */
+function buildPanelMeta(plan, isTrial = false) {
   const meta = {};
-  if (tag) meta.tag = tag.slice(0, 128);
 
-  const md = plan.max_devices;
-  if (md != null && Number.isFinite(Number(md)) && Number(md) > 0) {
-    meta.hwidDeviceLimit = Math.min(65535, Math.floor(Number(md)));
+  // Tag: trial plans get a dedicated tag; paid plans get prefix-slug tag
+  if (isTrial) {
+    const trialTag = config.vpnPanel.trialTag || 'trial_user';
+    if (trialTag) meta.tag = trialTag;
+  } else {
+    const prefix = (config.vpnPanel.userTagPrefix || '').trim();
+    const slug = plan?.slug ? String(plan.slug).trim() : '';
+    if (prefix && slug) meta.tag = `${prefix}-${slug}`.slice(0, 128);
+    else if (slug) meta.tag = slug.slice(0, 128);
+    else if (prefix) meta.tag = prefix.slice(0, 128);
   }
 
-  const tb = plan.traffic_bytes;
-  if (tb !== undefined && tb !== null) {
-    const t = Number(tb);
+  // Traffic limit
+  if (plan?.traffic_bytes !== undefined && plan.traffic_bytes !== null) {
+    const t = Number(plan.traffic_bytes);
     if (Number.isFinite(t) && t >= 0) meta.trafficLimitBytes = t;
   }
 
-  if (plan.name) meta.description = `VPNoodles — ${String(plan.name).slice(0, 480)}`;
+  // Description
+  if (plan?.name) {
+    meta.description = `VPNoodles — ${String(plan.name).slice(0, 480)}`;
+  }
 
   return meta;
 }
 
-function serverTagFromPanelUser(panelUser, plan) {
-  const snap = adapter.snapshotFromUser(panelUser);
-  if (snap.tag) return String(snap.tag).slice(0, 64);
-  if (plan?.slug) return String(plan.slug).slice(0, 64);
-  return 'default';
-}
-
-function getHostname(link) {
-  try {
-    const value = String(link || '').trim();
-    if (!value.startsWith('http://') && !value.startsWith('https://')) return '';
-    return new URL(value).hostname || '';
-  } catch {
-    return '';
-  }
-}
-
-function pickNodeLabel(node) {
-  const candidates = [
-    node?.name,
-    node?.country,
-    node?.countryName,
-    node?.title,
-    node?.remark,
-    node?.tag,
-    node?.hostname,
-  ];
-  for (const c of candidates) {
-    const v = String(c || '').trim();
-    if (v) return v;
-  }
-  return '';
-}
-
-function addHost(hostsSet, raw) {
-  const value = String(raw || '').trim();
-  if (!value) return;
-  if (value.startsWith('http://') || value.startsWith('https://')) {
-    const h = getHostname(value);
-    if (h) hostsSet.add(h.toLowerCase());
-    return;
-  }
-  const normalized = value.replace(/^\*\./, '').split('/')[0].trim();
-  if (normalized) hostsSet.add(normalized.toLowerCase());
-}
-
-function extractNodeHosts(node) {
-  const hosts = new Set();
-  const singleFields = ['host', 'hostname', 'domain', 'address', 'server'];
-  const arrayFields = ['hosts', 'domains', 'addresses', 'servers', 'urls'];
-
-  for (const field of singleFields) addHost(hosts, node?.[field]);
-  for (const field of arrayFields) {
-    const arr = node?.[field];
-    if (Array.isArray(arr)) {
-      for (const item of arr) addHost(hosts, item);
-    }
-  }
-
-  return hosts;
-}
-
-function buildNodeLabelByHost(nodes) {
-  const map = new Map();
-  const list = Array.isArray(nodes) ? nodes : [];
-  for (const node of list) {
-    const label = pickNodeLabel(node);
-    if (!label) continue;
-    const hosts = extractNodeHosts(node);
-    for (const h of hosts) {
-      if (!map.has(h)) map.set(h, label);
-    }
-  }
-  return map;
+/**
+ * Check if the VPN panel is configured.
+ * Returns false (and logs a warning) if URL is missing or still a placeholder.
+ */
+function isPanelConfigured() {
+  const url = config.vpnPanel.url || '';
+  return url.length > 0 && !url.includes('your-');
 }
 
 const VpnService = {
   /**
    * Provision a new VPN config for a user after subscription activation.
-   * Creates the user in the panel and saves config to DB.
+   *
+   * @param {number} userId
+   * @param {number} subscriptionId
+   * @param {object} plan           - plan row from DB (duration_days, traffic_bytes, slug, name)
+   * @param {boolean} [isTrial]     - true → assign trial tag in Remnawave
    */
-  async provision(userId, subscriptionId, plan) {
+  async provision(userId, subscriptionId, plan, isTrial = false) {
+    if (!isPanelConfigured()) {
+      logger.warn('VPN panel not configured — skipping provision', { userId });
+      return null;
+    }
+
+    const user = await User.findById(userId);
+    if (!user) throw new Error(`User not found: ${userId}`);
+
+    const panelUsername = `vpn_${user.telegram_id}`;
+    const panelMeta = buildPanelMeta(plan, isTrial);
+
+    let panelUser;
+
     try {
-      if (
-        config.vpnPanel.url === 'https://your-remnawave-panel.com' ||
-        config.vpnPanel.url === 'https://your-panel.com' ||
-        !config.vpnPanel.url
-      ) {
-        logger.warn('VPN panel not configured, skipping provision', { userId });
-        return;
-      }
+      // Try to get existing panel user
+      panelUser = await adapter.getUser(panelUsername);
 
-      const user = await User.findById(userId);
-      if (!user) throw new Error('User not found');
-
-      const panelUsername = `vpn_${user.telegram_id}`;
-      const panelMeta = buildPanelMetaFromPlan(plan);
-
-      let configLink = '';
-      let panelUser;
-
-      try {
-        panelUser = await adapter.getUser(panelUsername);
-        await adapter.extendUser(panelUsername, plan.duration_days, panelMeta);
-        await adapter.enableUser(panelUsername);
-        logger.info('Remnawave user extended', { panelUsername });
-      } catch (err) {
-        if (err.response?.status === 404) {
-          panelUser = await adapter.createUser(
-            panelUsername,
-            plan.traffic_bytes || 0,
-            plan.duration_days,
-            String(user.telegram_id),
-            panelMeta,
-          );
-          logger.info('Remnawave user created', { panelUsername });
-        } else {
-          throw err;
-        }
-      }
-
-      configLink =
-        adapter.subscriptionUrlFromUser(panelUser) || adapter.getSubscriptionUrl(panelUsername);
-
-      const serverTag = serverTagFromPanelUser(panelUser, plan);
-
-      const existing = await VpnConfig.findActiveByUserId(userId);
-      let vpnConfig;
-
-      if (existing && existing.length > 0) {
-        vpnConfig = await VpnConfig.update(existing[0].id, {
-          config_link: configLink,
-          status: 'active',
-          server_tag: serverTag,
-        });
-      } else {
-        vpnConfig = await VpnConfig.create({
-          userId,
-          subscriptionId,
-          panelUserId: panelUsername,
-          protocol: 'subscription',
-          configLink,
-          serverTag,
-        });
-      }
-
-      logger.info('VPN provisioned', { userId, subscriptionId, panelUsername, configLink });
-      return vpnConfig;
+      // User exists — extend expiry and sync meta (tag, traffic)
+      await adapter.extendUser(panelUsername, plan.duration_days, panelMeta);
+      await adapter.enableUser(panelUsername);
+      logger.info('Remnawave user extended', { panelUsername, tag: panelMeta.tag });
     } catch (err) {
-      logger.error('VPN provision failed', {
-        error: err.message,
+      if (err.response?.status === 404) {
+        // User doesn't exist — create new
+        panelUser = await adapter.createUser(
+          panelUsername,
+          plan.traffic_bytes || 0,
+          plan.duration_days,
+          String(user.telegram_id),
+          panelMeta,
+        );
+        logger.info('Remnawave user created', { panelUsername, tag: panelMeta.tag });
+      } else {
+        // Unexpected error — log and rethrow
+        logger.error('Remnawave getUser failed', {
+          panelUsername,
+          status: err.response?.status,
+          message: err.message,
+        });
+        throw err;
+      }
+    }
+
+    // Get subscription URL (prefer panel-provided URL)
+    const configLink =
+      adapter.subscriptionUrlFromUser(panelUser) || adapter.getSubscriptionUrl(panelUsername);
+
+    if (!configLink) {
+      logger.warn('VPN config link is empty after provision', { panelUsername });
+    }
+
+    // Save or update vpn_config in DB
+    const existing = await VpnConfig.findActiveByUserId(userId);
+    let vpnConfig;
+
+    if (existing && existing.length > 0) {
+      vpnConfig = await VpnConfig.update(existing[0].id, {
+        config_link: configLink,
+        status: 'active',
+        server_tag: panelMeta.tag || 'default',
+      });
+    } else {
+      vpnConfig = await VpnConfig.create({
         userId,
-        status: err.response?.status,
-        code: err.code,
+        subscriptionId,
+        panelUserId: panelUsername,
+        protocol: 'subscription',
+        configLink,
+        serverTag: panelMeta.tag || 'default',
       });
     }
+
+    logger.info('VPN provisioned', {
+      userId,
+      subscriptionId,
+      panelUsername,
+      tag: panelMeta.tag,
+      configLink,
+    });
+
+    return vpnConfig;
   },
 
   /**
-   * Get active VPN configs for a user with QR codes.
+   * Get active VPN configs for a user, enriched with QR code and panel snapshot.
    */
   async getConfigsForUser(userId) {
     const configs = await VpnConfig.findActiveByUserId(userId);
-    let nodeLabelByHost = new Map();
-    let defaultNodeLabel = '';
-
-    try {
-      const nodes = await adapter.getNodes();
-      nodeLabelByHost = buildNodeLabelByHost(nodes);
-      if (Array.isArray(nodes) && nodes.length === 1) {
-        defaultNodeLabel = pickNodeLabel(nodes[0]);
-      }
-    } catch (err) {
-      logger.warn('Failed to load nodes for display labels', { error: err.message });
-    }
 
     return Promise.all(
       configs.map(async (cfg) => {
         let qrCode = null;
-        const host = getHostname(cfg.config_link);
-        const serverLabel = host
-          ? nodeLabelByHost.get(host.toLowerCase()) || defaultNodeLabel
-          : defaultNodeLabel;
-
         let panel_snapshot = null;
-        try {
-          const panelUser = await adapter.getUser(cfg.panel_user_id);
-          panel_snapshot = adapter.snapshotFromUser(panelUser);
-        } catch (err) {
-          logger.warn('Failed to refresh user from panel', {
-            panelUserId: cfg.panel_user_id,
-            error: err.message,
-          });
+
+        // Fetch live stats from panel (non-critical)
+        if (isPanelConfigured() && cfg.panel_user_id) {
+          try {
+            const panelUser = await adapter.getUser(cfg.panel_user_id);
+            panel_snapshot = adapter.snapshotFromUser(panelUser);
+          } catch (err) {
+            logger.warn('Failed to fetch panel snapshot', {
+              panelUserId: cfg.panel_user_id,
+              error: err.message,
+            });
+          }
         }
 
+        // Generate QR code (non-critical)
         if (cfg.config_link) {
           try {
             qrCode = await QRCode.toDataURL(cfg.config_link);
@@ -238,7 +174,8 @@ const VpnService = {
             // QR generation is non-critical
           }
         }
-        return { ...cfg, qrCode, server_label: serverLabel, panel_snapshot };
+
+        return { ...cfg, qrCode, panel_snapshot };
       }),
     );
   },
@@ -251,7 +188,9 @@ const VpnService = {
 
     for (const cfg of configs) {
       try {
-        await adapter.disableUser(cfg.panel_user_id);
+        if (isPanelConfigured()) {
+          await adapter.disableUser(cfg.panel_user_id);
+        }
         await VpnConfig.disable(cfg.id);
       } catch (err) {
         logger.error('Failed to disable VPN config', { configId: cfg.id, error: err.message });
@@ -267,7 +206,9 @@ const VpnService = {
 
     for (const cfg of configs) {
       try {
-        await adapter.enableUser(cfg.panel_user_id);
+        if (isPanelConfigured()) {
+          await adapter.enableUser(cfg.panel_user_id);
+        }
         await VpnConfig.enable(cfg.id);
       } catch (err) {
         logger.error('Failed to enable VPN config', { configId: cfg.id, error: err.message });
@@ -276,9 +217,10 @@ const VpnService = {
   },
 
   /**
-   * Extend VPN user expiry in the panel.
+   * Extend VPN user expiry in the panel (used by cron for renewals).
    */
   async extendInPanel(userId, days) {
+    if (!isPanelConfigured()) return;
     const configs = await VpnConfig.findActiveByUserId(userId);
 
     for (const cfg of configs) {
@@ -291,6 +233,7 @@ const VpnService = {
   },
 
   async getSystemStats() {
+    if (!isPanelConfigured()) return null;
     return adapter.getSystemStats();
   },
 };

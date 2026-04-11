@@ -35,50 +35,65 @@ const config = {
       min: parseInt(process.env.DB_POOL_MIN, 10) || 2,
       max: parseInt(process.env.DB_POOL_MAX, 10) || 10,
     },
-    // SSL: set DB_SSL=true only for managed cloud Postgres (RDS, Supabase, etc.)
-    // Keep false for local/Docker postgres — it doesn't support SSL by default
     ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
   },
 
-  // ── VPN Panel — Remnawave only ──────────────────────────────────────────────
+  // ── VPN Panel — Remnawave ─────────────────────────────────────────────────
   vpnPanel: {
-    url: process.env.VPN_PANEL_URL || '', // https://your-panel.com (no trailing slash)
+    url: (process.env.VPN_PANEL_URL || '').replace(/\/+$/, ''),
+
+    // ── Auth: API Token (preferred) ──────────────────────────────────────
+    // Get from Remnawave panel → Settings → API Tokens
+    // If set, username/password are NOT used (token auth is more reliable)
+    apiToken: process.env.VPN_API_TOKEN || '',
+
+    // Fallback: username/password login (used only if VPN_API_TOKEN is empty)
     username: process.env.VPN_PANEL_USERNAME || 'admin',
     password: process.env.VPN_PANEL_PASSWORD || '',
-    apiToken: process.env.VPN_API_TOKEN || '', // Remnawave API token from dashboard
-    subscriptionToken: process.env.VPN_SUBSCRIPTION_TOKEN || '', // subscription API (if required)
+
+    // ── Subscription URL ─────────────────────────────────────────────────
     // Public domain for subscription links (can differ from panel URL)
-    serverDomain: process.env.VPN_SERVER_DOMAIN || '',
+    // e.g. https://sub.yourdomain.com
+    serverDomain: (process.env.VPN_SERVER_DOMAIN || '').replace(/\/+$/, ''),
+    // Subscription path — Remnawave default: /api/sub
     subPath: process.env.VPN_SUB_PATH || '/api/sub',
-    // Optional prefix for user tags sent to the panel (e.g. "shop" → shop-basic)
-    userTagPrefix: (process.env.VPN_USER_TAG_PREFIX || '').trim(),
-    // Remnawave: comma-separated internal squad UUIDs for new users (optional)
-    internalSquadUuids: (process.env.VPN_INTERNAL_SQUAD_UUIDS || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
-    tlsInsecure: process.env.VPN_PANEL_TLS_INSECURE === 'true',
+
+    // ── TLS ──────────────────────────────────────────────────────────────
+    // Set true only if your panel uses a self-signed certificate
+    tlsInsecure: process.env.VPN_TLS_INSECURE === 'true',
+
+    // ── Trial tag ────────────────────────────────────────────────────────
+    // Tag assigned to trial users in Remnawave (for filtering in panel)
+    trialTag: process.env.TRIAL_REMNAWAVE_TAG || 'trial_user',
+
+    // ── User tag prefix ──────────────────────────────────────────────────
+    // Optional prefix for plan tags in Remnawave, e.g. "vpnoodles"
+    // Result: "vpnoodles-basic_1m"
+    userTagPrefix: process.env.VPN_USER_TAG_PREFIX || '',
   },
 
   // ── Payments ──────────────────────────────────────────────────────────────
   payments: {
     starsEnabled: process.env.STARS_ENABLED === 'true',
-    yookassa: {
-      shopId: process.env.YOOKASSA_SHOP_ID || '',
-      secretKey: process.env.YOOKASSA_SECRET_KEY || '',
-    },
-    // CryptoBot (Crypto Pay) — https://t.me/CryptoBot
+
+    // CryptoBot (Crypto Pay) — https://t.me/CryptoBot → /pay → Create App
     cryptoPay: {
       enabled: process.env.CRYPTO_PAY_ENABLED === 'true',
       token: process.env.CRYPTO_PAY_TOKEN || '',
       url: process.env.CRYPTO_PAY_URL || 'https://pay.crypt.bot',
     },
+
+    // YooKassa (optional)
+    yookassa: {
+      shopId: process.env.YOOKASSA_SHOP_ID || '',
+      secretKey: process.env.YOOKASSA_SECRET_KEY || '',
+    },
   },
 
-  // ── Plans ─────────────────────────────────────────────────────────────────
+  // ── Trial ─────────────────────────────────────────────────────────────────
   plans: {
-    trialDays: parseInt(process.env.PLAN_TRIAL_DAYS, 10) || 3,
-    trialTrafficGb: parseInt(process.env.PLAN_TRIAL_TRAFFIC_GB, 10) || 1,
+    trialDays: parseInt(process.env.PLAN_TRIAL_DAYS, 10) || 7,
+    trialTrafficGb: parseInt(process.env.PLAN_TRIAL_TRAFFIC_GB, 10) || 10,
   },
 
   // ── Referral ──────────────────────────────────────────────────────────────
@@ -100,13 +115,27 @@ const config = {
 
 // ── Validation ────────────────────────────────────────────────────────────────
 function validateConfig(cfg) {
-  const required = [['telegram.token', cfg.telegram.token], ['vpnPanel.apiToken', cfg.vpnPanel.apiToken]];
+  const required = [['BOT_TOKEN', cfg.telegram.token]];
   const missing = required.filter(([, val]) => !val).map(([key]) => key);
 
   if (missing.length > 0) {
     throw new Error(
       `Missing required environment variables: ${missing.join(', ')}\n` +
         'Please check your .env file against .env.example',
+    );
+  }
+
+  // Warn about unconfigured VPN panel (non-fatal — bot can run without it)
+  if (!cfg.vpnPanel.url || cfg.vpnPanel.url.includes('your-')) {
+    console.warn(
+      '[config] WARNING: VPN_PANEL_URL is not configured. VPN provisioning will be skipped.',
+    );
+  }
+
+  const hasAuth = cfg.vpnPanel.apiToken || (cfg.vpnPanel.username && cfg.vpnPanel.password);
+  if (cfg.vpnPanel.url && !hasAuth) {
+    console.warn(
+      '[config] WARNING: VPN panel URL is set but no auth configured. Set VPN_API_TOKEN or VPN_PANEL_USERNAME+VPN_PANEL_PASSWORD.',
     );
   }
 }

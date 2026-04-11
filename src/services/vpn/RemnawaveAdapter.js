@@ -6,61 +6,182 @@ const config = require('../../config');
 const logger = require('../../utils/logger');
 
 /** Standard UUID v4 string (Remnawave user ids). */
-const UUID_STRING_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /**
  * Adapter for Remnawave VPN panel API.
- * Docs: https://docs.rw/
+ * Docs: https://docs.remnawave.com/
  *
- * Remnawave uses JWT Bearer auth.
- * Base URL example: https://your-server.com  (no trailing slash)
+ * Auth priority:
+ *   1. VPN_API_TOKEN  — static API token from panel Settings → API Tokens (preferred)
+ *   2. VPN_PANEL_USERNAME + VPN_PANEL_PASSWORD — JWT login (fallback)
+ *
+ * Base URL: VPN_PANEL_URL (no trailing slash), e.g. https://panel.yourdomain.com
  * API prefix: /api
  */
 class RemnawaveAdapter {
   constructor() {
-    this.baseUrl = config.vpnPanel.url; // e.g. https://your-server.com
+    this.baseUrl = config.vpnPanel.url;
+    this.apiToken = config.vpnPanel.apiToken;
     this.username = config.vpnPanel.username;
     this.password = config.vpnPanel.password;
-    this.apiToken = config.vpnPanel.apiToken;
-    this.subscriptionToken = config.vpnPanel.subscriptionToken;
-    this._token = null;
-    this._tokenExpiry = null;
+
+    // JWT session (used only when apiToken is empty)
+    this._jwtToken = null;
+    this._jwtExpiry = null;
 
     const axiosOpts = {
       baseURL: `${this.baseUrl}/api`,
       timeout: 15000,
     };
+
     if (config.vpnPanel.tlsInsecure) {
       axiosOpts.httpsAgent = new https.Agent({ rejectUnauthorized: false });
     }
 
     this._http = axios.create(axiosOpts);
-    this._http.defaults.transformResponse = [
-      (data) => {
-        try {
-          return JSON.parse(data);
-        } catch {
-          return data;
-        }
-      },
-    ];
   }
 
+  // ── Auth ───────────────────────────────────────────────────────────────────
+
   /**
-   * Remnawave wraps many entities as { response: { ... } }; some versions nest twice.
+   * Returns the Bearer token to use for requests.
+   * If VPN_API_TOKEN is set — use it directly (no login needed).
+   * Otherwise — login with username/password and cache the JWT.
    */
-  _unwrapPayload(data) {
+  async _getBearerToken() {
+    // Static API token — always preferred
+    if (this.apiToken) {
+      return this.apiToken;
+    }
+
+    // JWT session — reuse if still valid
+    if (this._jwtToken && this._jwtExpiry && Date.now() < this._jwtExpiry) {
+      return this._jwtToken;
+    }
+
+    // Login to get JWT
+    const res = await this._http.post('/auth/login', {
+      username: this.username,
+      password: this.password,
+    });
+
+    const token =
+      res.data?.accessToken ||
+      res.data?.access_token ||
+      res.data?.response?.accessToken ||
+      res.data?.response?.access_token;
+
+    if (!token) {
+      throw new Error('Remnawave login failed: no token in response');
+    }
+
+    this._jwtToken = token;
+    this._jwtExpiry = Date.now() + 23 * 60 * 60 * 1000; // 23h
+    logger.info('Remnawave JWT refreshed');
+    return this._jwtToken;
+  }
+
+  // ── Network helpers ────────────────────────────────────────────────────────
+
+  _isTransientError(err) {
+    if (err.response) return false;
+    const c = err.code;
+    return (
+      c === 'ECONNRESET' ||
+      c === 'ECONNREFUSED' ||
+      c === 'ETIMEDOUT' ||
+      c === 'EPIPE' ||
+      c === 'ECONNABORTED' ||
+      String(err.message).toLowerCase().includes('socket hang up')
+    );
+  }
+
+  async _withRetry(fn, label) {
+    let lastErr;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastErr = err;
+        if (attempt < 3 && this._isTransientError(err)) {
+          const delay = 400 * attempt;
+          logger.warn('Remnawave transient error, retrying', {
+            label,
+            attempt,
+            delay,
+            code: err.code,
+          });
+          await new Promise((r) => setTimeout(r, delay));
+        } else {
+          throw err;
+        }
+      }
+    }
+    throw lastErr;
+  }
+
+  // ── Core request ───────────────────────────────────────────────────────────
+
+  async _request(method, path, data = null, params = null) {
+    const doRequest = async () => {
+      const token = await this._getBearerToken();
+      const reqConfig = {
+        method,
+        url: path,
+        params,
+        headers: { Authorization: `Bearer ${token}` },
+      };
+      if (data !== null && data !== undefined) {
+        reqConfig.headers['Content-Type'] = 'application/json';
+        reqConfig.data = data;
+      }
+      const res = await this._http(reqConfig);
+      return res.data;
+    };
+
+    try {
+      return await this._withRetry(doRequest, `${method} ${path}`);
+    } catch (err) {
+      // On 401 with JWT — clear cached token and retry once
+      if (err.response?.status === 401 && !this.apiToken) {
+        this._jwtToken = null;
+        this._jwtExpiry = null;
+        logger.warn('Remnawave 401 — clearing JWT cache, retrying once');
+        try {
+          return await doRequest();
+        } catch (retryErr) {
+          logger.error('Remnawave request failed after token refresh', {
+            method,
+            path,
+            status: retryErr.response?.status,
+            message: retryErr.response?.data?.message || retryErr.message,
+          });
+          throw retryErr;
+        }
+      }
+
+      logger.error('Remnawave API error', {
+        method,
+        path,
+        status: err.response?.status,
+        code: err.code,
+        message: err.response?.data?.message || err.message,
+      });
+      throw err;
+    }
+  }
+
+  // ── Response unwrapping ────────────────────────────────────────────────────
+
+  /**
+   * Remnawave wraps responses as { response: { ... } }.
+   * Unwrap up to 3 levels deep.
+   */
+  _unwrap(data) {
     let cur = data;
-    for (let depth = 0; depth < 5; depth++) {
-      if (
-        cur &&
-        typeof cur === 'object' &&
-        Object.prototype.hasOwnProperty.call(cur, 'response') &&
-        cur.response !== null &&
-        typeof cur.response === 'object' &&
-        !Array.isArray(cur.response)
-      ) {
+    for (let i = 0; i < 3; i++) {
+      if (cur && typeof cur === 'object' && !Array.isArray(cur) && 'response' in cur) {
         cur = cur.response;
       } else {
         break;
@@ -70,365 +191,199 @@ class RemnawaveAdapter {
   }
 
   /**
-   * Last resort: find a UUID string under a key containing "uuid" (nested), for API shape drift.
+   * Extract user UUID from panel response (handles various field names).
    */
-  _findUuidByKeyRecursive(obj, depth = 0) {
-    if (!obj || typeof obj !== 'object' || depth > 6) return null;
-    if (Array.isArray(obj)) {
-      for (const item of obj) {
-        const found = this._findUuidByKeyRecursive(item, depth + 1);
-        if (found) return found;
-      }
-      return null;
-    }
-    for (const [k, v] of Object.entries(obj)) {
-      if (typeof v === 'string' && /uuid/i.test(k) && UUID_STRING_RE.test(v)) {
-        return v.trim();
-      }
-    }
-    for (const v of Object.values(obj)) {
-      if (v && typeof v === 'object') {
-        const found = this._findUuidByKeyRecursive(v, depth + 1);
-        if (found) return found;
-      }
+  _extractUuid(user) {
+    if (!user || typeof user !== 'object') return null;
+    const candidates = [user.uuid, user.id, user.userUuid, user.user_uuid];
+    for (const c of candidates) {
+      if (c && UUID_RE.test(String(c))) return String(c);
     }
     return null;
   }
 
-  /**
-   * User id for /users/{id} paths — API may use uuid, id, snake_case, or nest under user/data.
-   */
-  _panelUserId(user) {
-    if (!user || typeof user !== 'object') return null;
-    const tryObj = (o) => {
-      if (!o || typeof o !== 'object') return null;
-      const candidates = [
-        o.uuid,
-        o.id,
-        o.userUuid,
-        o.user_uuid,
-        o.userUUID,
-        o.shortUuid,
-        o.short_uuid,
-      ];
-      for (const c of candidates) {
-        if (c != null && String(c).trim() !== '') {
-          const s = String(c).trim();
-          if (UUID_STRING_RE.test(s)) return s;
-          // Some stacks return numeric ids — still try path (panel-dependent)
-          if (s.length > 0) return s;
-        }
-      }
-      return null;
-    };
-    return (
-      tryObj(user) ||
-      tryObj(user.user) ||
-      tryObj(user.data) ||
-      tryObj(user.result) ||
-      this._findUuidByKeyRecursive(user)
-    );
-  }
-
-  _usersPath(user) {
-    const id = this._panelUserId(user);
+  _userPath(user) {
+    const id = this._extractUuid(user);
     if (!id) {
-      const keys = user && typeof user === 'object' ? Object.keys(user) : [];
-      logger.error('Remnawave user object missing uuid/id', { keys });
-      const err = new Error('Remnawave user object missing uuid/id');
-      throw err;
+      logger.error('Cannot build user path — no UUID in panel response', {
+        keys: Object.keys(user || {}),
+      });
+      throw new Error('Remnawave: user UUID not found in response');
     }
-    return `/users/${encodeURIComponent(id)}`;
+    return `/users/${id}`;
   }
 
-  /** No HTTP response — connection dropped, timeout, reset, etc. */
-  _isTransientNetworkError(err) {
-    if (!err || err.response) return false;
-    const c = err.code;
-    if (
-      c === 'ECONNRESET' ||
-      c === 'ECONNREFUSED' ||
-      c === 'ETIMEDOUT' ||
-      c === 'EPIPE' ||
-      c === 'ECONNABORTED'
-    ) {
-      return true;
-    }
-    const msg = String(err.message || '').toLowerCase();
-    return msg.includes('socket hang up') || msg.includes('network error');
-  }
-
-  async _withNetworkRetries(operation, label) {
-    const maxAttempts = 3;
-    let lastErr;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        return await operation();
-      } catch (err) {
-        lastErr = err;
-        const retry = attempt < maxAttempts && this._isTransientNetworkError(err);
-        if (!retry) throw err;
-        const delayMs = 400 * attempt;
-        logger.warn('Remnawave network error, retry', {
-          label,
-          attempt,
-          nextInMs: delayMs,
-          code: err.code,
-        });
-        await new Promise((r) => setTimeout(r, delayMs));
-      }
-    }
-    throw lastErr;
-  }
+  // ── Snapshot helper ────────────────────────────────────────────────────────
 
   /**
-   * Normalized fields from panel user object (camelCase or snake_case).
+   * Normalize panel user object to a consistent shape.
+   * Used by VpnService and myVpn handler to display traffic/expiry.
    */
   snapshotFromUser(user) {
     if (!user || typeof user !== 'object') {
-      return {
-        tag: '',
-        hwidDeviceLimit: null,
-        usedTrafficBytes: null,
-        trafficLimitBytes: null,
-        expireAt: null,
-      };
+      return { tag: '', usedTrafficBytes: null, trafficLimitBytes: null, expireAt: null };
     }
-    const used =
-      user.usedTrafficBytes ??
-      user.used_traffic_bytes ??
-      user.consumedTrafficBytes ??
-      null;
-    const tlim = user.trafficLimitBytes ?? user.traffic_limit_bytes ?? null;
+    const used = user.usedTrafficBytes ?? user.used_traffic_bytes ?? null;
+    const limit = user.trafficLimitBytes ?? user.traffic_limit_bytes ?? null;
     return {
-      tag: user.tag != null ? String(user.tag).trim() : '',
-      hwidDeviceLimit:
-        user.hwidDeviceLimit !== undefined && user.hwidDeviceLimit !== null
-          ? user.hwidDeviceLimit
-          : user.hwid_device_limit !== undefined
-            ? user.hwid_device_limit
-            : null,
-      usedTrafficBytes: typeof used === 'number' && Number.isFinite(used) ? used : null,
-      trafficLimitBytes: typeof tlim === 'number' && Number.isFinite(tlim) ? tlim : null,
+      tag: user.tag ? String(user.tag).trim() : '',
+      usedTrafficBytes: typeof used === 'number' ? used : null,
+      trafficLimitBytes: typeof limit === 'number' ? limit : null,
       expireAt: user.expireAt || user.expire_at || null,
     };
-  }
-
-  _applyCreateMeta(payload, meta) {
-    if (!meta || typeof meta !== 'object') return;
-    if (meta.tag != null && String(meta.tag).trim() !== '') {
-      payload.tag = String(meta.tag).trim().slice(0, 128);
-    }
-    const lim = meta.hwidDeviceLimit;
-    if (lim != null && Number.isFinite(Number(lim)) && Number(lim) > 0) {
-      payload.hwidDeviceLimit = Math.min(65535, Math.floor(Number(lim)));
-    }
-    if (meta.description != null && String(meta.description).trim() !== '') {
-      payload.description = String(meta.description).trim().slice(0, 512);
-    }
-  }
-
-  /** Fields for PATCH /users/{uuid} (renewal / sync with plan). */
-  _patchFromPlanMeta(meta) {
-    if (!meta || typeof meta !== 'object') return {};
-    const out = {};
-    if (meta.tag != null && String(meta.tag).trim() !== '') {
-      out.tag = String(meta.tag).trim().slice(0, 128);
-    }
-    const lim = meta.hwidDeviceLimit;
-    if (lim != null && Number.isFinite(Number(lim)) && Number(lim) > 0) {
-      out.hwidDeviceLimit = Math.min(65535, Math.floor(Number(lim)));
-    }
-    if (meta.trafficLimitBytes !== undefined) {
-      const t = Number(meta.trafficLimitBytes);
-      if (Number.isFinite(t) && t >= 0) {
-        out.trafficLimitBytes = t;
-        out.trafficLimitStrategy = t > 0 ? 'MONTH_ROLLING' : 'NO_RESET';
-      }
-    }
-    return out;
-  }
-
-  async _request(method, path, data = null, params = null, useSubscriptionToken = false) {
-    let token;
-    if (useSubscriptionToken && this.subscriptionToken) {
-      token = this.subscriptionToken;
-    } else {
-      token = this.apiToken;
-    }
-    const authHeaders = { Authorization: `Bearer ${token}` };
-
-    try {
-      const requestConfig = {
-        method,
-        url: path,
-        params,
-        headers: authHeaders,
-      };
-      if (data !== null && data !== undefined) {
-        requestConfig.headers['Content-Type'] = 'application/json';
-        requestConfig.data = data;
-      }
-
-      const res = await this._withNetworkRetries(
-        () => this._http(requestConfig),
-        `${method} ${path}`,
-      );
-      return res.data;
-    } catch (err) {
-      logger.error('Remnawave API error', {
-        method,
-        path,
-        status: err.response?.status,
-        code: err.code,
-        message: err.response?.data?.message || err.message,
-        responseData: err.response?.data,
-      });
-      throw err;
-    }
   }
 
   // ── User management ────────────────────────────────────────────────────────
 
   /**
    * Create a VPN user in Remnawave.
-   * @param {string} username - unique username (e.g. "vpn_12345")
-   * @param {number} trafficLimitBytes - 0 = unlimited
-   * @param {number} expireDays - days until expiry
-   * @param {string} [tgId] - Telegram user ID (optional)
-   * @param {object} [meta] - tag, hwidDeviceLimit, description (panel user tag & HWID limit)
+   *
+   * @param {string} username        - unique username, e.g. "vpn_394112994"
+   * @param {number} trafficBytes    - traffic limit in bytes; 0 = unlimited
+   * @param {number} expireDays      - days until expiry
+   * @param {string} [tgId]          - Telegram user ID (stored in panel for reference)
+   * @param {object} [meta]          - optional: { tag, description }
    */
-  async createUser(username, trafficLimitBytes = 0, expireDays = 30, tgId = '', meta = {}) {
-    const expireAtTimestamp = Math.floor((Date.now() + expireDays * 86400 * 1000) / 1000);
-    const trafficLimit = Number(trafficLimitBytes);
-    const normalizedTrafficLimit =
-      Number.isFinite(trafficLimit) && trafficLimit > 0 ? trafficLimit : 0;
+  async createUser(username, trafficBytes = 0, expireDays = 30, tgId = '', meta = {}) {
+    const expireAt = new Date(Date.now() + expireDays * 86400 * 1000).toISOString();
+    const traffic = Number(trafficBytes);
+    const trafficLimit = Number.isFinite(traffic) && traffic > 0 ? traffic : 0;
 
     const payload = {
       username,
-      expireAt: new Date(expireAtTimestamp * 1000).toISOString(),
-      trafficLimitBytes: normalizedTrafficLimit,
-      trafficLimitStrategy: normalizedTrafficLimit > 0 ? 'MONTH_ROLLING' : 'NO_RESET',
+      expireAt,
+      trafficLimitBytes: trafficLimit,
+      trafficLimitStrategy: trafficLimit > 0 ? 'MONTH_ROLLING' : 'NO_RESET',
       status: 'ACTIVE',
     };
 
-    const tid = tgId !== '' && tgId != null ? parseInt(String(tgId), 10) : NaN;
-    if (!Number.isNaN(tid)) {
+    // Telegram ID (integer)
+    const tid = parseInt(String(tgId || ''), 10);
+    if (!Number.isNaN(tid) && tid > 0) {
       payload.telegramId = tid;
     }
 
-    this._applyCreateMeta(payload, meta);
-
-    const configuredSquads = config.vpnPanel.internalSquadUuids || [];
-    const squads = configuredSquads.filter((id) => UUID_STRING_RE.test(String(id)));
-    if (configuredSquads.length > squads.length) {
-      logger.warn('Ignoring invalid VPN internal squad UUIDs');
+    // Optional tag (for filtering in panel)
+    if (meta.tag && String(meta.tag).trim()) {
+      payload.tag = String(meta.tag).trim().slice(0, 128);
     }
-    if (squads.length > 0) {
-      payload.activeInternalSquads = squads;
+
+    // Optional description
+    if (meta.description && String(meta.description).trim()) {
+      payload.description = String(meta.description).trim().slice(0, 512);
     }
 
     const raw = await this._request('POST', '/users', payload);
-    const user = this._unwrapPayload(raw);
-    logger.info('Remnawave user created', { username });
+    const user = this._unwrap(raw);
+    logger.info('Remnawave user created', { username, tag: payload.tag });
     return user;
   }
 
+  /**
+   * Get user by username.
+   * Throws with err.response.status === 404 if not found.
+   */
   async getUser(username) {
-    const raw = await this._request(
-      'GET',
-      `/users/by-username/${encodeURIComponent(username)}`,
-      null,
-      null,
-      false,
-    );
-    if (raw === 'null' || raw === null) {
-      const err = new Error('User not found');
+    const raw = await this._request('GET', `/users/by-username/${encodeURIComponent(username)}`);
+
+    // Some Remnawave versions return null for missing users
+    if (raw === null || raw === 'null') {
+      const err = new Error(`User not found: ${username}`);
       err.response = { status: 404 };
       throw err;
     }
-    return this._unwrapPayload(raw);
-  }
 
-  async getUserByUuid(uuid) {
-    const raw = await this._request('GET', `/users/${uuid}`);
-    return this._unwrapPayload(raw);
+    return this._unwrap(raw);
   }
 
   async enableUser(username) {
     const user = await this.getUser(username);
-    return this._request('PATCH', this._usersPath(user), { status: 'ACTIVE' });
+    const raw = await this._request('PATCH', this._userPath(user), { status: 'ACTIVE' });
+    return this._unwrap(raw);
   }
 
   async disableUser(username) {
     const user = await this.getUser(username);
-    return this._request('PATCH', this._usersPath(user), { status: 'DISABLED' });
+    const raw = await this._request('PATCH', this._userPath(user), { status: 'DISABLED' });
+    return this._unwrap(raw);
   }
 
   async deleteUser(username) {
     const user = await this.getUser(username);
-    return this._request('DELETE', this._usersPath(user));
+    return this._request('DELETE', this._userPath(user));
   }
 
   async resetUserTraffic(username) {
     const user = await this.getUser(username);
-    return this._request('POST', `${this._usersPath(user)}/reset-traffic`);
+    return this._request('POST', `${this._userPath(user)}/reset-traffic`);
   }
 
   /**
-   * Extend user expiry by N days from now (or from current expiry if still active).
-   * @param {object} [meta] - optional tag, hwidDeviceLimit, trafficLimitBytes (sync with plan)
+   * Extend user expiry by N days.
+   * Extends from current expiry if still in the future, otherwise from now.
+   *
+   * @param {object} [meta] - optional: { tag, trafficLimitBytes } to sync with plan
    */
   async extendUser(username, days, meta = {}) {
     const user = await this.getUser(username);
-    const exp =
-      user.expireAt || user.expire_at
-        ? new Date(user.expireAt || user.expire_at).getTime()
-        : Date.now();
-    const currentExpiry = Number.isFinite(exp) ? exp : Date.now();
+
+    const rawExpiry = user.expireAt || user.expire_at;
+    const currentExpiry = rawExpiry ? new Date(rawExpiry).getTime() : Date.now();
     const base = currentExpiry > Date.now() ? currentExpiry : Date.now();
     const newExpireAt = new Date(base + days * 86400 * 1000).toISOString();
-    const body = { expireAt: newExpireAt, ...this._patchFromPlanMeta(meta) };
-    return this._request('PATCH', this._usersPath(user), body);
+
+    const body = { expireAt: newExpireAt };
+
+    // Sync tag if provided
+    if (meta.tag && String(meta.tag).trim()) {
+      body.tag = String(meta.tag).trim().slice(0, 128);
+    }
+
+    // Sync traffic limit if provided
+    if (meta.trafficLimitBytes !== undefined) {
+      const t = Number(meta.trafficLimitBytes);
+      if (Number.isFinite(t) && t >= 0) {
+        body.trafficLimitBytes = t;
+        body.trafficLimitStrategy = t > 0 ? 'MONTH_ROLLING' : 'NO_RESET';
+      }
+    }
+
+    const raw = await this._request('PATCH', this._userPath(user), body);
+    return this._unwrap(raw);
   }
 
   /**
-   * Prefer subscription URL returned by the panel (tokens, CDN, short UUID).
+   * Get subscription URL for a user.
+   * Prefers the URL returned by the panel (subscriptionUrl field).
+   * Falls back to constructing it from VPN_SERVER_DOMAIN + VPN_SUB_PATH.
    */
   subscriptionUrlFromUser(user) {
-    if (!user || typeof user !== 'object') return '';
-    const url = user.subscriptionUrl;
-    if (typeof url !== 'string') return '';
-    const t = url.trim();
-    return t.length > 0 ? t : '';
+    const url = user?.subscriptionUrl || user?.subscription_url || '';
+    return typeof url === 'string' ? url.trim() : '';
   }
 
-  /**
-   * Fallback subscription link when API did not return subscriptionUrl.
-   */
   getSubscriptionUrl(username) {
-    const domain = (config.vpnPanel.serverDomain || this.baseUrl || '').replace(/\/+$/, '');
-    let subPath = config.vpnPanel.subPath || '/api/sub';
-    subPath = subPath.startsWith('/') ? subPath : `/${subPath}`;
-    subPath = subPath.replace(/\/+$/, '');
-    return `${domain}${subPath}/${encodeURIComponent(username)}`;
+    const domain = (config.vpnPanel.serverDomain || this.baseUrl).replace(/\/+$/, '');
+    const subPath = (config.vpnPanel.subPath || '/api/sub').replace(/\/+$/, '');
+    const path = subPath.startsWith('/') ? subPath : `/${subPath}`;
+    return `${domain}${path}/${encodeURIComponent(username)}`;
   }
 
   // ── Stats ──────────────────────────────────────────────────────────────────
 
   async getSystemStats() {
     const raw = await this._request('GET', '/system/stats');
-    return this._unwrapPayload(raw);
+    return this._unwrap(raw);
   }
 
   async getNodes() {
     const raw = await this._request('GET', '/nodes');
-    return this._unwrapPayload(raw);
+    return this._unwrap(raw);
   }
 
   async getInbounds() {
     const raw = await this._request('GET', '/inbounds');
-    return this._unwrapPayload(raw);
+    return this._unwrap(raw);
   }
 }
 

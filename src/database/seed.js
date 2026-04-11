@@ -13,8 +13,8 @@ const defaultPlans = [
   {
     name: '🎁 Пробный',
     slug: 'trial',
-    duration_days: 3,
-    traffic_bytes: 1 * 1024 * 1024 * 1024, // 1 GB
+    duration_days: 7,
+    traffic_bytes: 10 * 1024 * 1024 * 1024, // 10 GB
     price_stars: 0,
     price_rub: 0,
     price_usd: 0,
