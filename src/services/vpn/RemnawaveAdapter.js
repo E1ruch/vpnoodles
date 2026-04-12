@@ -268,41 +268,53 @@ class RemnawaveAdapter {
    * @param {object} [meta]          - optional: { tag, description }
    */
   async createUser(username, trafficBytes = 0, expireDays = 30, tgId = '', meta = {}) {
+    // 1. Подготовка данных
+    // Рассчитываем дату. Если 0, передаем null (или можно выкинуть ошибку, если expiry обязателен)
+    // В вашем примере дата передана строкой ISO.
     const expireAt =
-      expireDays > 0 ? new Date(Date.now() + expireDays * 86400 * 1000).toISOString() : '';
+      expireDays > 0 ? new Date(Date.now() + expireDays * 86400 * 1000).toISOString() : null;
 
     const traffic = Number(trafficBytes);
     const trafficLimit = Number.isFinite(traffic) && traffic > 0 ? traffic : 0;
 
-    // --- ИСПРАВЛЕНИЕ ---
-    // 1. Сначала вычисляем значение и сохраняем в отдельную переменную.
-    // Используем имя finalTelegramId или telegramId (чтобы можно было использовать сокращенную запись ниже).
+    // Парсим Telegram ID
     const tid = parseInt(String(tgId || ''), 10);
-    const telegramId = !Number.isNaN(tid) && tid > 0 ? tid : null;
+    const finalTelegramId = !Number.isNaN(tid) && tid > 0 ? tid : null;
 
-    //  meta
-    const tag =
-      meta.tag && String(meta.tag).trim() ? String(meta.tag).trim().slice(0, 128) : undefined;
+    // Мета-данные
+    const tag = meta.tag?.trim() ? meta.tag.trim().slice(0, 128) : undefined;
+    const description = meta.description?.trim()
+      ? meta.description.trim().slice(0, 512)
+      : undefined;
 
-    const description =
-      meta.description && String(meta.description).trim()
-        ? String(meta.description).trim().slice(0, 512)
-        : undefined;
-
-    // 2. Теперь создаем объект payload, используя вычисленный выше telegramId
+    // 2. Формирование Payload (аналогично рабочему запросу из Postman)
+    // Начинаем с обязательных полей
     const payload = {
       username,
       expireAt,
-      trafficLimitBytes: trafficLimit,
-      trafficLimitStrategy: trafficLimit > 0 ? 'MONTH_ROLLING' : 'NO_RESET',
-      status: 'ACTIVE',
-      telegramId, // Теперь переменная telegramId существует, и это будет корректное число или null
-      ...(tag && { tag }),
-      ...(description && { description }),
     };
 
-    // Удаляем строку, которая вызывала ошибку: payload.telegramId = ...
+    // Добавляем опциональные поля ТОЛЬКО если они есть.
+    // Панель сама выставит дефолтные ACTIVE и NO_RESET, если их не передать.
 
+    if (trafficLimit > 0) {
+      payload.trafficLimitBytes = trafficLimit;
+      payload.trafficLimitStrategy = 'MONTH_ROLLING';
+    }
+
+    if (finalTelegramId) {
+      payload.telegramId = finalTelegramId;
+    }
+
+    if (tag) {
+      payload.tag = tag;
+    }
+
+    if (description) {
+      payload.description = description;
+    }
+
+    // 3. Отправка запроса
     const raw = await this._request('POST', '/users', payload);
     const user = this._unwrap(raw);
 
