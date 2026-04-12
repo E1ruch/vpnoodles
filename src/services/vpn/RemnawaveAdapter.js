@@ -270,36 +270,37 @@ class RemnawaveAdapter {
   async createUser(username, trafficBytes = 0, expireDays = 30, tgId = '', meta = {}) {
     const expireAt =
       expireDays > 0 ? new Date(Date.now() + expireDays * 86400 * 1000).toISOString() : '';
+
     const traffic = Number(trafficBytes);
     const trafficLimit = Number.isFinite(traffic) && traffic > 0 ? traffic : 0;
-
-    const payload = {
-      username,
-      expireAt: expireAt || null,
-      trafficLimitBytes: trafficLimit,
-      trafficLimitStrategy: trafficLimit > 0 ? 'MONTH_ROLLING' : 'NO_RESET',
-      status: 'ACTIVE',
-      telegramId: payload.telegramId,
-    };
-
-    payload.shortUuid = payload.uuid.slice(0, 8);
 
     // Telegram ID (integer)
     const tid = parseInt(String(tgId || ''), 10);
     payload.telegramId = !Number.isNaN(tid) && tid > 0 ? tid : null;
 
-    // Optional tag (for filtering in panel)
-    if (meta.tag && String(meta.tag).trim()) {
-      payload.tag = String(meta.tag).trim().slice(0, 128);
-    }
+    //  meta
+    const tag =
+      meta.tag && String(meta.tag).trim() ? String(meta.tag).trim().slice(0, 128) : undefined;
 
-    // Optional description
-    if (meta.description && String(meta.description).trim()) {
-      payload.description = String(meta.description).trim().slice(0, 512);
-    }
+    const description =
+      meta.description && String(meta.description).trim()
+        ? String(meta.description).trim().slice(0, 512)
+        : undefined;
+
+    const payload = {
+      username,
+      expireAt,
+      trafficLimitBytes: trafficLimit,
+      trafficLimitStrategy: trafficLimit > 0 ? 'MONTH_ROLLING' : 'NO_RESET',
+      status: 'ACTIVE',
+      telegramId,
+      ...(tag && { tag }),
+      ...(description && { description }),
+    };
 
     const raw = await this._request('POST', '/users', payload);
     const user = this._unwrap(raw);
+
     logger.info('Remnawave user created', { username, tag: payload.tag });
     return user;
   }
