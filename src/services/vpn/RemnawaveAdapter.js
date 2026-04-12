@@ -274,9 +274,11 @@ class RemnawaveAdapter {
     const traffic = Number(trafficBytes);
     const trafficLimit = Number.isFinite(traffic) && traffic > 0 ? traffic : 0;
 
-    // Telegram ID (integer)
+    // --- ИСПРАВЛЕНИЕ ---
+    // 1. Сначала вычисляем значение и сохраняем в отдельную переменную.
+    // Используем имя finalTelegramId или telegramId (чтобы можно было использовать сокращенную запись ниже).
     const tid = parseInt(String(tgId || ''), 10);
-    payload.telegramId = !Number.isNaN(tid) && tid > 0 ? tid : null;
+    const telegramId = !Number.isNaN(tid) && tid > 0 ? tid : null;
 
     //  meta
     const tag =
@@ -287,16 +289,19 @@ class RemnawaveAdapter {
         ? String(meta.description).trim().slice(0, 512)
         : undefined;
 
+    // 2. Теперь создаем объект payload, используя вычисленный выше telegramId
     const payload = {
       username,
       expireAt,
       trafficLimitBytes: trafficLimit,
       trafficLimitStrategy: trafficLimit > 0 ? 'MONTH_ROLLING' : 'NO_RESET',
       status: 'ACTIVE',
-      telegramId,
+      telegramId, // Теперь переменная telegramId существует, и это будет корректное число или null
       ...(tag && { tag }),
       ...(description && { description }),
     };
+
+    // Удаляем строку, которая вызывала ошибку: payload.telegramId = ...
 
     const raw = await this._request('POST', '/users', payload);
     const user = this._unwrap(raw);
@@ -304,7 +309,6 @@ class RemnawaveAdapter {
     logger.info('Remnawave user created', { username, tag: payload.tag });
     return user;
   }
-
   /**
    * Get user by username.
    * Throws with err.response.status === 404 if not found.
