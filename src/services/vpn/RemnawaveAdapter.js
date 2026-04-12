@@ -280,6 +280,11 @@ class RemnawaveAdapter {
       expireAt,
     };
 
+    // --- Squad UUID (Автоматическое добавление в отряд) ---
+    if (config.vpnPanel.defaultSquad) {
+      payload.externalSquadUuid = config.vpnPanel.defaultSquad;
+    }
+
     // 3. Добавляем опциональные поля ТОЛЬКО если они есть
     const traffic = Number(trafficBytes);
     if (Number.isFinite(traffic) && traffic > 0) {

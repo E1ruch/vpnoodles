@@ -70,6 +70,7 @@ const config = {
     // Optional prefix for plan tags in Remnawave, e.g. "vpnoodles"
     // Result: "vpnoodles-basic_1m"
     userTagPrefix: process.env.VPN_USER_TAG_PREFIX || '',
+    defaultSquad: process.env.VPN_DEFAULT_SQUAD || '', // Optional default squad for new users in Remnawave
   },
 
   // ── Payments ──────────────────────────────────────────────────────────────
