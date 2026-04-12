@@ -268,58 +268,55 @@ class RemnawaveAdapter {
    * @param {object} [meta]          - optional: { tag, description }
    */
   async createUser(username, trafficBytes = 0, expireDays = 30, tgId = '', meta = {}) {
-    // 1. Подготовка данных
-    // Рассчитываем дату. Если 0, передаем null (или можно выкинуть ошибку, если expiry обязателен)
-    // В вашем примере дата передана строкой ISO.
-    const expireAt =
-      expireDays > 0 ? new Date(Date.now() + expireDays * 86400 * 1000).toISOString() : null;
+    // 1. Подготовка даты (ГИГИЕНА ДАННЫХ)
+    // Если expireDays не передан или <= 0, используем 30 дней по умолчанию,
+    // чтобы избежать null, который вызывает "Validation failed".
+    const days = expireDays && expireDays > 0 ? expireDays : 30;
+    const expireAt = new Date(Date.now() + days * 86400 * 1000).toISOString();
 
-    const traffic = Number(trafficBytes);
-    const trafficLimit = Number.isFinite(traffic) && traffic > 0 ? traffic : 0;
-
-    // Парсим Telegram ID
-    const tid = parseInt(String(tgId || ''), 10);
-    const finalTelegramId = !Number.isNaN(tid) && tid > 0 ? tid : null;
-
-    // Мета-данные
-    const tag = meta.tag?.trim() ? meta.tag.trim().slice(0, 128) : undefined;
-    const description = meta.description?.trim()
-      ? meta.description.trim().slice(0, 512)
-      : undefined;
-
-    // 2. Формирование Payload (аналогично рабочему запросу из Postman)
-    // Начинаем с обязательных полей
+    // 2. Подготовка объекта (аналогично Postman)
     const payload = {
       username,
       expireAt,
     };
 
-    // Добавляем опциональные поля ТОЛЬКО если они есть.
-    // Панель сама выставит дефолтные ACTIVE и NO_RESET, если их не передать.
-
-    if (trafficLimit > 0) {
-      payload.trafficLimitBytes = trafficLimit;
+    // 3. Добавляем опциональные поля ТОЛЬКО если они есть
+    const traffic = Number(trafficBytes);
+    if (Number.isFinite(traffic) && traffic > 0) {
+      payload.trafficLimitBytes = traffic;
       payload.trafficLimitStrategy = 'MONTH_ROLLING';
     }
 
-    if (finalTelegramId) {
-      payload.telegramId = finalTelegramId;
+    const tid = parseInt(String(tgId || ''), 10);
+    if (!Number.isNaN(tid) && tid > 0) {
+      payload.telegramId = tid;
     }
 
-    if (tag) {
-      payload.tag = tag;
+    if (meta.tag && String(meta.tag).trim()) {
+      payload.tag = String(meta.tag).trim();
     }
 
-    if (description) {
-      payload.description = description;
+    if (meta.description && String(meta.description).trim()) {
+      payload.description = String(meta.description).trim();
     }
 
-    // 3. Отправка запроса
-    const raw = await this._request('POST', '/users', payload);
-    const user = this._unwrap(raw);
+    // 4. Логирование для отладки (посмотрим, что реально улетает)
+    logger.info('Creating Remnawave user with payload', { payload });
 
-    logger.info('Remnawave user created', { username, tag: payload.tag });
-    return user;
+    try {
+      const raw = await this._request('POST', '/users', payload);
+      const user = this._unwrap(raw);
+      logger.info('Remnawave user created successfully', { username });
+      return user;
+    } catch (err) {
+      // Если ошибка повторится, мы увидим детали в логе
+      logger.error('Failed to create Remnawave user', {
+        status: err.response?.status,
+        data: err.response?.data,
+        payloadSent: payload,
+      });
+      throw err;
+    }
   }
   /**
    * Get user by username.
