@@ -268,30 +268,18 @@ class RemnawaveAdapter {
    * @param {object} [meta]          - optional: { tag, description }
    */
   async createUser(username, trafficBytes = 0, expireDays = 30, tgId = '', meta = {}) {
-    const expireAt = new Date(Date.now() + expireDays * 86400 * 1000).toISOString();
+    const expireAt =
+      expireDays > 0 ? new Date(Date.now() + expireDays * 86400 * 1000).toISOString() : '';
     const traffic = Number(trafficBytes);
     const trafficLimit = Number.isFinite(traffic) && traffic > 0 ? traffic : 0;
 
     const payload = {
       username,
-      expireAt,
+      expireAt: expireAt || null,
       trafficLimitBytes: trafficLimit,
       trafficLimitStrategy: trafficLimit > 0 ? 'MONTH_ROLLING' : 'NO_RESET',
       status: 'ACTIVE',
-      uuid: crypto.randomUUID(),
-      shortUuid: '',
-      trojanPassword: '',
-      vlessUuid: '',
-      ssPassword: '',
-      createdAt: '',
-      lastTrafficResetAt: '',
-      description: '',
-      tag: '',
-      telegramId: null,
-      email: null,
-      hwidDeviceLimit: 0,
-      activeInternalSquads: [''],
-      externalSquadUuid: null,
+      telegramId: payload.telegramId,
     };
 
     payload.shortUuid = payload.uuid.slice(0, 8);
