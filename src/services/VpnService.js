@@ -76,9 +76,11 @@ const VpnService = {
       // Try to get existing panel user
       panelUser = await adapter.getUser(panelUsername);
 
-      // User exists — extend expiry and sync meta (tag, traffic)
-      await adapter.extendUser(panelUsername, plan.duration_days, panelMeta);
-      await adapter.enableUser(panelUsername);
+      // User exists — extend expiry and sync meta (tag, traffic) in one PATCH
+      panelUser = await adapter.extendUser(panelUsername, plan.duration_days, {
+        ...panelMeta,
+        status: 'ACTIVE',
+      });
       logger.info('Remnawave user extended', { panelUsername, tag: panelMeta.tag });
     } catch (err) {
       if (err.response?.status === 404) {
@@ -93,7 +95,7 @@ const VpnService = {
         logger.info('Remnawave user created', { panelUsername, tag: panelMeta.tag });
       } else {
         // Unexpected error — log and rethrow
-        logger.error('Remnawave getUser failed', {
+        logger.error('Remnawave provision failed', {
           panelUsername,
           status: err.response?.status,
           message: err.message,

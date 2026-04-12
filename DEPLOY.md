@@ -124,12 +124,12 @@ docker compose up -d --build
 docker compose ps
 ```
 
-Все три контейнера должны быть `healthy`:
+Все два контейнера должны быть `healthy`:
 
 ```
 vpnoodles_bot       running (healthy)
 vpnoodles_postgres  running (healthy)
-vpnoodles_redis     running (healthy)
+
 ```
 
 ---

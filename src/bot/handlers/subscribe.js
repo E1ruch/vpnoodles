@@ -223,12 +223,15 @@ async function handleTrial(ctx, user) {
           duration_days: sub.duration_days ?? trialPlan.duration_days,
           traffic_bytes: sub.traffic_limit_bytes ?? trialPlan.traffic_bytes,
         }
-      : { duration_days: sub.duration_days || 3, traffic_bytes: sub.traffic_limit_bytes };
-    await VpnService.provision(user.id, sub.id, plan);
+      : { duration_days: sub.duration_days || 7, traffic_bytes: sub.traffic_limit_bytes };
 
+    // isTrial=true → assigns TRIAL_REMNAWAVE_TAG in Remnawave panel
+    await VpnService.provision(user.id, sub.id, plan, true);
+
+    const days = plan.duration_days || 7;
     await ctx.editMessageText(
       `🎉 *Пробный период активирован!*\n\n` +
-        `✅ Доступ открыт на *3 дня*\n\n` +
+        `✅ Доступ открыт на *${days} дней*\n\n` +
         `Нажмите "Мой VPN" чтобы получить конфигурацию.`,
       {
         parse_mode: 'Markdown',

@@ -33,6 +33,20 @@ class RemnawaveAdapter {
     const axiosOpts = {
       baseURL: `${this.baseUrl}/api`,
       timeout: 15000,
+      // Force JSON parsing regardless of Content-Type header
+      // (Remnawave sometimes returns text/plain or application/octet-stream)
+      transformResponse: [
+        (data) => {
+          if (typeof data === 'string') {
+            try {
+              return JSON.parse(data);
+            } catch {
+              return data;
+            }
+          }
+          return data;
+        },
+      ],
     };
 
     if (config.vpnPanel.tlsInsecure) {
@@ -205,8 +219,16 @@ class RemnawaveAdapter {
   _userPath(user) {
     const id = this._extractUuid(user);
     if (!id) {
+      // Log full object (truncated) to diagnose the actual field name
+      let preview = '';
+      try {
+        preview = JSON.stringify(user).slice(0, 500);
+      } catch {
+        preview = String(user);
+      }
       logger.error('Cannot build user path — no UUID in panel response', {
         keys: Object.keys(user || {}),
+        preview,
       });
       throw new Error('Remnawave: user UUID not found in response');
     }
@@ -284,16 +306,38 @@ class RemnawaveAdapter {
    * Throws with err.response.status === 404 if not found.
    */
   async getUser(username) {
-    const raw = await this._request('GET', `/users/by-username/${encodeURIComponent(username)}`);
+    let raw;
+    try {
+      raw = await this._request('GET', `/users/by-username/${encodeURIComponent(username)}`);
+    } catch (err) {
+      // HTTP 404 from panel — user doesn't exist
+      if (err.response?.status === 404) throw err;
+      throw err;
+    }
 
-    // Some Remnawave versions return null for missing users
-    if (raw === null || raw === 'null') {
+    // Remnawave returns null / "null" / { response: null } when user not found
+    if (raw === null || raw === 'null' || raw === undefined) {
       const err = new Error(`User not found: ${username}`);
       err.response = { status: 404 };
       throw err;
     }
 
-    return this._unwrap(raw);
+    const unwrapped = this._unwrap(raw);
+
+    // After unwrap — check if result is null/empty (another "not found" variant)
+    if (unwrapped === null || unwrapped === undefined) {
+      const err = new Error(`User not found: ${username}`);
+      err.response = { status: 404 };
+      throw err;
+    }
+
+    // Debug log — log top-level keys to help diagnose UUID field name
+    if (process.env.NODE_ENV !== 'production') {
+      const keys = unwrapped && typeof unwrapped === 'object' ? Object.keys(unwrapped) : [];
+      logger.debug('Remnawave getUser response keys', { username, keys });
+    }
+
+    return unwrapped;
   }
 
   async enableUser(username) {
@@ -333,6 +377,11 @@ class RemnawaveAdapter {
     const newExpireAt = new Date(base + days * 86400 * 1000).toISOString();
 
     const body = { expireAt: newExpireAt };
+
+    // Sync status if provided (e.g. re-enable on renewal)
+    if (meta.status === 'ACTIVE' || meta.status === 'DISABLED') {
+      body.status = meta.status;
+    }
 
     // Sync tag if provided
     if (meta.tag && String(meta.tag).trim()) {
