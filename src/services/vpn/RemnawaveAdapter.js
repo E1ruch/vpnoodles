@@ -2,6 +2,7 @@
 
 const https = require('https');
 const axios = require('axios');
+const crypto = require('crypto');
 const config = require('../../config');
 const logger = require('../../utils/logger');
 
@@ -277,13 +278,27 @@ class RemnawaveAdapter {
       trafficLimitBytes: trafficLimit,
       trafficLimitStrategy: trafficLimit > 0 ? 'MONTH_ROLLING' : 'NO_RESET',
       status: 'ACTIVE',
+      uuid: crypto.randomUUID(),
+      shortUuid: '',
+      trojanPassword: '',
+      vlessUuid: '',
+      ssPassword: '',
+      createdAt: '',
+      lastTrafficResetAt: '',
+      description: '',
+      tag: '',
+      telegramId: null,
+      email: null,
+      hwidDeviceLimit: 0,
+      activeInternalSquads: [''],
+      externalSquadUuid: null,
     };
+
+    payload.shortUuid = payload.uuid.slice(0, 8);
 
     // Telegram ID (integer)
     const tid = parseInt(String(tgId || ''), 10);
-    if (!Number.isNaN(tid) && tid > 0) {
-      payload.telegramId = tid;
-    }
+    payload.telegramId = !Number.isNaN(tid) && tid > 0 ? tid : null;
 
     // Optional tag (for filtering in panel)
     if (meta.tag && String(meta.tag).trim()) {
