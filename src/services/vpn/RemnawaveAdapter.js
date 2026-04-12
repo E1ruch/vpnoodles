@@ -280,9 +280,10 @@ class RemnawaveAdapter {
       expireAt,
     };
 
-    // --- Squad UUID (Автоматическое добавление в отряд) ---
+    // --- Squad UUID (Исправлено: используем массив activeInternalSquads) ---
     if (config.vpnPanel.defaultSquad) {
-      payload.externalSquadUuid = config.vpnPanel.defaultSquad;
+      // API ожидает массив UUID, даже если он один
+      payload.activeInternalSquads = [config.vpnPanel.defaultSquad];
     }
 
     // 3. Добавляем опциональные поля ТОЛЬКО если они есть
