@@ -265,7 +265,7 @@ class RemnawaveAdapter {
    * @param {number} trafficBytes    - traffic limit in bytes; 0 = unlimited
    * @param {number} expireDays      - days until expiry
    * @param {string} [tgId]          - Telegram user ID (stored in panel for reference)
-   * @param {object} [meta]          - optional: { tag, description }
+   * @param {object} [meta]          - optional: { tag, description, hwidDeviceLimit }
    */
   async createUser(username, trafficBytes = 0, expireDays = 30, tgId = '', meta = {}) {
     // 1. Подготовка даты (ГИГИЕНА ДАННЫХ)
@@ -286,6 +286,8 @@ class RemnawaveAdapter {
       payload.activeInternalSquads = [config.vpnPanel.defaultSquad];
     }
 
+    // --- Количество устройств (Исправлено: добавляем только если указано в тарифе) ---
+
     // 3. Добавляем опциональные поля ТОЛЬКО если они есть
     const traffic = Number(trafficBytes);
     if (Number.isFinite(traffic) && traffic > 0) {
@@ -304,6 +306,13 @@ class RemnawaveAdapter {
 
     if (meta.description && String(meta.description).trim()) {
       payload.description = String(meta.description).trim();
+    }
+
+    if (meta.hwidDeviceLimit !== undefined && meta.hwidDeviceLimit !== null) {
+      const d = Number(meta.hwidDeviceLimit);
+      if (Number.isFinite(d) && d >= 0) {
+        payload.hwidDeviceLimit = d;
+      }
     }
 
     // 4. Логирование для отладки (посмотрим, что реально улетает)
@@ -417,6 +426,14 @@ class RemnawaveAdapter {
       if (Number.isFinite(t) && t >= 0) {
         body.trafficLimitBytes = t;
         body.trafficLimitStrategy = t > 0 ? 'MONTH_ROLLING' : 'NO_RESET';
+      }
+    }
+
+    // Sync device limit if provided
+    if (meta.hwidDeviceLimit !== undefined) {
+      const d = Number(meta.hwidDeviceLimit);
+      if (Number.isFinite(d) && d >= 0) {
+        body.hwidDeviceLimit = d;
       }
     }
 

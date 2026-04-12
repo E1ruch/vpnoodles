@@ -32,6 +32,12 @@ function buildPanelMeta(plan, isTrial = false) {
     if (Number.isFinite(t) && t >= 0) meta.trafficLimitBytes = t;
   }
 
+  // Device limit
+  if (plan?.max_devices !== undefined && plan.max_devices !== null) {
+    const d = Number(plan.max_devices);
+    if (Number.isFinite(d) && d >= 0) meta.hwidDeviceLimit = d;
+  }
+
   // Description
   if (plan?.name) {
     meta.description = `VPNoodles — ${String(plan.name).slice(0, 480)}`;

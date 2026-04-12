@@ -103,9 +103,7 @@ class CryptoPayService {
     return [
       { asset: 'USDT', name: 'USDT (TRC-20 / TON)' },
       { asset: 'TON', name: 'TON' },
-      { asset: 'BTC', name: 'Bitcoin' },
       { asset: 'ETH', name: 'Ethereum' },
-      { asset: 'LTC', name: 'Litecoin' },
       { asset: 'USDC', name: 'USDC' },
       { asset: 'BNB', name: 'BNB' },
       { asset: 'TRX', name: 'TRON' },
