@@ -54,7 +54,7 @@ module.exports = async (ctx) => {
     // New user — show trial button
     keyboard = Markup.inlineKeyboard([
       [Markup.button.callback('🎁 Попробовать бесплатно', 'trial')],
-      [Markup.button.callback('💳 Купить подписку', 'subscribe')],
+      [Markup.button.callback('💳 Приобрести подписку', 'subscribe')],
       [Markup.button.callback('👤 Профиль', 'profile')],
     ]);
   } else {

@@ -105,14 +105,17 @@ async function createBot() {
     try {
       const count = await PaymentService.processCryptoPayPaid();
       if (count > 0) {
-        await ctx.editMessageText(
-          '✅ Оплата подтверждена! Нажмите "Мой VPN" для получения конфигурации.',
-          {
-            ...require('telegraf').Markup.inlineKeyboard([
-              [require('telegraf').Markup.button.callback('📱 Мой VPN', 'my_vpn')],
-            ]),
-          },
-        );
+        const text = '✅ Оплата подтверждена! Нажмите "Мой VPN" для получения конфигурации.';
+        const keyboard = require('telegraf').Markup.inlineKeyboard([
+          [require('telegraf').Markup.button.callback('📱 Мой VPN', 'my_vpn')],
+        ]);
+
+        // Check if the original message has a photo (QR code) - use editMessageCaption for photos
+        if (ctx.callbackQuery?.message?.photo) {
+          await ctx.editMessageCaption(text, { parse_mode: 'Markdown', ...keyboard });
+        } else {
+          await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+        }
       } else {
         await ctx.answerCbQuery('⏳ Оплата ещё не поступила. Попробуйте через минуту.', {
           show_alert: true,

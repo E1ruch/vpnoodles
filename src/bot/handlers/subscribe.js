@@ -86,10 +86,18 @@ module.exports = async (ctx) => {
       .join('\n─────────────\n');
 
   if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(planButtons),
-    });
+    // Check if the original message has a photo (QR code) - use editMessageCaption for photos
+    if (ctx.callbackQuery.message?.photo) {
+      await ctx.editMessageCaption(text, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(planButtons),
+      });
+    } else {
+      await ctx.editMessageText(text, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(planButtons),
+      });
+    }
   } else {
     await ctx.replyWithMarkdown(text, Markup.inlineKeyboard(planButtons));
   }
@@ -128,10 +136,18 @@ async function showPlanDetail(ctx, planId) {
     `*Выберите способ оплаты:*`;
 
   if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, {
-      parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard(buttons),
-    });
+    // Check if the original message has a photo (QR code) - use editMessageCaption for photos
+    if (ctx.callbackQuery.message?.photo) {
+      await ctx.editMessageCaption(text, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(buttons),
+      });
+    } else {
+      await ctx.editMessageText(text, {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard(buttons),
+      });
+    }
   } else {
     await ctx.replyWithMarkdown(text, Markup.inlineKeyboard(buttons));
   }
@@ -150,16 +166,24 @@ async function showCryptoAssetPicker(ctx, planId) {
   ]);
   buttons.push([Markup.button.callback('◀️ Назад', `show_plan_${planId}`)]);
 
-  await ctx.editMessageText(
+  const text =
     `💎 *Оплата криптовалютой*\n\n` +
-      `План: *${plan.name}*\n` +
-      `Сумма: *$${(plan.price_usd / 100).toFixed(2)}*\n\n` +
-      `Выберите валюту:`,
-    {
+    `План: *${plan.name}*\n` +
+    `Сумма: *$${(plan.price_usd / 100).toFixed(2)}*\n\n` +
+    `Выберите валюту:`;
+
+  // Check if the original message has a photo (QR code) - use editMessageCaption for photos
+  if (ctx.callbackQuery?.message?.photo) {
+    await ctx.editMessageCaption(text, {
       parse_mode: 'Markdown',
       ...Markup.inlineKeyboard(buttons),
-    },
-  );
+    });
+  } else {
+    await ctx.editMessageText(text, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard(buttons),
+    });
+  }
 }
 
 // ── Handle CryptoPay payment ───────────────────────────────────────────────
@@ -168,8 +192,15 @@ async function handleCryptoPayment(ctx, user, planId, asset) {
   const plan = await Plan.findById(planId);
   if (!plan) return ctx.reply('❌ План не найден.');
 
+  const hasPhoto = ctx.callbackQuery?.message?.photo;
+
   try {
-    await ctx.editMessageText('⏳ Создаём счёт...');
+    // Check if the original message has a photo (QR code) - use editMessageCaption for photos
+    if (hasPhoto) {
+      await ctx.editMessageCaption('⏳ Создаём счёт...');
+    } else {
+      await ctx.editMessageText('⏳ Создаём счёт...');
+    }
 
     const { invoice } = await PaymentService.createCryptoPayInvoice({
       userId: user.id,
@@ -179,21 +210,24 @@ async function handleCryptoPayment(ctx, user, planId, asset) {
 
     const invoiceUrl = invoice.bot_invoice_url || invoice.pay_url;
 
-    await ctx.editMessageText(
+    const text =
       `💎 *Счёт на оплату создан*\n\n` +
-        `📋 План: *${plan.name}*\n` +
-        `💰 Сумма: *${invoice.amount} ${asset}*\n` +
-        `⏰ Действует: *1 час*\n\n` +
-        `Нажмите кнопку ниже для оплаты через CryptoBot:`,
-      {
-        parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([
-          [Markup.button.url(`💎 Оплатить ${invoice.amount} ${asset}`, invoiceUrl)],
-          [Markup.button.callback('🔄 Проверить оплату', `check_crypto_${plan.id}`)],
-          [Markup.button.callback('◀️ Отмена', 'subscribe')],
-        ]),
-      },
-    );
+      `📋 План: *${plan.name}*\n` +
+      `💰 Сумма: *${invoice.amount} ${asset}*\n` +
+      `⏰ Действует: *1 час*\n\n` +
+      `Нажмите кнопку ниже для оплаты через CryptoBot:`;
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.url(`💎 Оплатить ${invoice.amount} ${asset}`, invoiceUrl)],
+      [Markup.button.callback('🔄 Проверить оплату', `check_crypto_${plan.id}`)],
+      [Markup.button.callback('◀️ Отмена', 'subscribe')],
+    ]);
+
+    // After first edit, message is now text-only, so use editMessageText
+    await ctx.editMessageText(text, {
+      parse_mode: 'Markdown',
+      ...keyboard,
+    });
   } catch (err) {
     logger.error('CryptoPay invoice creation error', { error: err.message, userId: user.id });
     await ctx.reply('⚠️ Ошибка при создании счёта. Попробуйте позже.');
@@ -206,14 +240,24 @@ async function handleTrial(ctx, user) {
   try {
     const sub = await SubscriptionService.activateTrial(user.id);
 
+    const hasPhoto = ctx.callbackQuery?.message?.photo;
+
     if (!sub) {
-      return ctx.editMessageText(
-        '❌ Вы уже использовали пробный период.\n\nВыберите платный план:',
-        {
+      const text = '❌ Вы уже использовали пробный период.\n\nВыберите платный план:';
+      const keyboard = Markup.inlineKeyboard([
+        [Markup.button.callback('💳 Купить подписку', 'subscribe')],
+      ]);
+
+      if (hasPhoto) {
+        return ctx.editMessageCaption(text, {
           parse_mode: 'Markdown',
-          ...Markup.inlineKeyboard([[Markup.button.callback('💳 Купить подписку', 'subscribe')]]),
-        },
-      );
+          ...keyboard,
+        });
+      }
+      return ctx.editMessageText(text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
     }
 
     const trialPlan = await Plan.findTrial();
@@ -229,18 +273,26 @@ async function handleTrial(ctx, user) {
     await VpnService.provision(user.id, sub.id, plan, true);
 
     const days = plan.duration_days || 7;
-    await ctx.editMessageText(
+    const text =
       `🎉 *Пробный период активирован!*\n\n` +
-        `✅ Доступ открыт на *${days} дней*\n\n` +
-        `Нажмите "Мой VPN" чтобы получить конфигурацию.`,
-      {
+      `✅ Доступ открыт на *${days} дней*\n\n` +
+      `Нажмите "Мой VPN" чтобы получить конфигурацию.`;
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('📱 Мой VPN', 'my_vpn')],
+      [Markup.button.callback('◀️ Меню', 'menu')],
+    ]);
+
+    if (hasPhoto) {
+      await ctx.editMessageCaption(text, {
         parse_mode: 'Markdown',
-        ...Markup.inlineKeyboard([
-          [Markup.button.callback('📱 Мой VPN', 'my_vpn')],
-          [Markup.button.callback('◀️ Меню', 'menu')],
-        ]),
-      },
-    );
+        ...keyboard,
+      });
+    } else {
+      await ctx.editMessageText(text, {
+        parse_mode: 'Markdown',
+        ...keyboard,
+      });
+    }
   } catch (err) {
     logger.error('Trial activation error', { error: err.message, userId: user.id });
     await ctx.reply('⚠️ Ошибка активации. Попробуйте позже.');

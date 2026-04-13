@@ -39,7 +39,12 @@ module.exports = async (ctx) => {
   ]);
 
   if (ctx.callbackQuery) {
-    await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    // Check if the original message has a photo (QR code) - use editMessageCaption for photos
+    if (ctx.callbackQuery.message?.photo) {
+      await ctx.editMessageCaption(text, { parse_mode: 'Markdown', ...keyboard });
+    } else {
+      await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    }
   } else {
     await ctx.replyWithMarkdown(text, keyboard);
   }
