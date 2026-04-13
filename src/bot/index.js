@@ -79,6 +79,18 @@ async function createBot() {
   bot.action('subscribe', subscribeHandler);
   bot.action('trial', subscribeHandler); // "Попробовать бесплатно"
   bot.action('my_vpn', myVpnHandler);
+  bot.action(/^show_qr_(\d+)$/, async (ctx) => {
+    const configId = ctx.match[1];
+    return myVpnHandler.showQr(ctx, configId);
+  });
+  bot.action(/^copy_link_(\d+)$/, async (ctx) => {
+    const configId = ctx.match[1];
+    return myVpnHandler.copyLink(ctx, configId);
+  });
+  bot.action(/^show_qr_image_(\d+)$/, async (ctx) => {
+    const configId = ctx.match[1];
+    return myVpnHandler.showQrImage(ctx, configId);
+  });
   bot.action('profile', profileHandler);
   bot.action('referral', referralHandler);
 

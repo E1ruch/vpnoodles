@@ -53,7 +53,37 @@ function serverLabel(cfg) {
 }
 
 /**
- * My VPN handler — shows active configs and QR codes
+ * Build full config text with link (for connection display)
+ */
+function buildFullConfigText(cfg) {
+  const snap = cfg.panel_snapshot;
+  let extraInfo = '';
+
+  if (snap) {
+    if (snap.hwidDeviceLimit != null && snap.hwidDeviceLimit !== '') {
+      extraInfo += `\n📱 Устройств: до ${snap.hwidDeviceLimit}`;
+    }
+    if (snap.usedTrafficBytes != null) {
+      const u = formatTrafficUsed(snap.usedTrafficBytes);
+      if (u) {
+        extraInfo += `\n📊 Трафик: ${u}`;
+        if (snap.trafficLimitBytes != null && snap.trafficLimitBytes > 0) {
+          extraInfo += ` из ${formatTrafficUsed(snap.trafficLimitBytes)}`;
+        }
+      }
+    }
+  }
+
+  return (
+    `🖥 *${serverLabel(cfg)}*\n` +
+    `📡 Протокол: ${protocolLabel(cfg.protocol)}${extraInfo}\n\n` +
+    `📋 *Ссылка для подключения:*\n` +
+    `\`${cfg.config_link || 'Генерируется...'}\``
+  );
+}
+
+/**
+ * My VPN handler — shows subscription info with connection button
  */
 module.exports = async (ctx) => {
   if (ctx.callbackQuery) await ctx.answerCbQuery();
@@ -71,11 +101,10 @@ module.exports = async (ctx) => {
     const keyboard = Markup.inlineKeyboard([
       [Markup.button.callback('💳 Купить подписку', 'subscribe')],
       [Markup.button.callback('🎁 Попробовать бесплатно', 'trial')],
-      [Markup.button.callback('◀️ Меню', 'menu')],
+      [Markup.button.callback('◀️ Назад', 'menu')],
     ]);
 
     if (ctx.callbackQuery) {
-      // Check if the original message has a photo (QR code) - use editMessageCaption for photos
       if (ctx.callbackQuery.message?.photo) {
         return ctx.editMessageCaption(text, { parse_mode: 'Markdown', ...keyboard });
       }
@@ -87,88 +116,194 @@ module.exports = async (ctx) => {
   const configs = await VpnService.getConfigsForUser(user.id);
 
   if (!configs.length) {
-    return ctx.reply(
-      '⚙️ Ваша конфигурация VPN ещё создаётся. Попробуйте через минуту.',
-      Markup.inlineKeyboard([[Markup.button.callback('🔄 Обновить', 'my_vpn')]]),
-    );
+    const text =
+      `📱 *Мой VPN*\n\n` +
+      `⏳ Ваша конфигурация создаётся...\n` +
+      `Обычно это занимает 1-2 минуты.`;
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('🔄 Проверить', 'my_vpn')],
+      [Markup.button.callback('◀️ Назад', 'menu')],
+    ]);
+
+    if (ctx.callbackQuery) {
+      if (ctx.callbackQuery.message?.photo) {
+        await ctx.deleteMessage().catch(() => {});
+        return ctx.replyWithMarkdown(text, keyboard);
+      }
+      return ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    }
+    return ctx.replyWithMarkdown(text, keyboard);
   }
 
   const daysLeft = Math.ceil((new Date(activeSub.expires_at) - new Date()) / (1000 * 60 * 60 * 24));
 
-  // Send subscription status
-  const statusText =
-    `📱 *Мой VPN*\n\n` +
-    `✅ Подписка активна\n` +
-    `📅 Истекает: *${new Date(activeSub.expires_at).toLocaleDateString('ru-RU')}* (через ${daysLeft} дн.)\n\n` +
-    `Ваши конфигурации:`;
+  // Get first config (subscription link)
+  const mainConfig = configs[0];
+  const snap = mainConfig.panel_snapshot;
 
-  if (ctx.callbackQuery) {
-    await ctx.editMessageText(statusText, { parse_mode: 'Markdown' });
-  } else {
-    await ctx.replyWithMarkdown(statusText);
+  // Build user-friendly message
+  let messageText =
+    `📱 *Мой VPN*\n\n` +
+    `✅ Подписка активна до ${new Date(activeSub.expires_at).toLocaleDateString('ru-RU')}\n` +
+    `📅 Осталось: *${daysLeft} ${daysLeft === 1 ? 'день' : daysLeft < 5 ? 'дня' : 'дней'}*\n\n` +
+    `🔗 *Ваша подписка:*\n` +
+    `🖥 ${serverLabel(mainConfig)}`;
+
+  // Add device limit if available
+  if (snap?.hwidDeviceLimit != null && snap.hwidDeviceLimit !== '') {
+    messageText += ` • 📱 До ${snap.hwidDeviceLimit} устройств`;
   }
 
-  // Send each config with QR code
-  for (const cfg of configs) {
-    try {
-      const link = String(cfg.config_link || '').trim();
-      const connectRow =
-        link.startsWith('http://') || link.startsWith('https://')
-          ? [[Markup.button.url('🚀 Подключиться', link)]]
-          : [];
-
-      const snap = cfg.panel_snapshot;
-      let panelExtra = '';
-      if (snap) {
-        if (snap.hwidDeviceLimit != null && snap.hwidDeviceLimit !== '') {
-          panelExtra += `\n📱 Лимит устройств (панель): ${snap.hwidDeviceLimit}`;
-        }
-        if (snap.usedTrafficBytes != null) {
-          const u = formatTrafficUsed(snap.usedTrafficBytes);
-          if (u) {
-            panelExtra += `\n📊 Использовано трафика: ${u}`;
-            if (snap.trafficLimitBytes != null && snap.trafficLimitBytes > 0) {
-              panelExtra += ` / лимит ${formatTrafficUsed(snap.trafficLimitBytes)}`;
-            }
-          }
-        }
-      }
-
-      const configText =
-        `🔑 *Конфигурация #${cfg.id}*\n` +
-        `📡 Протокол: \`${protocolLabel(cfg.protocol)}\`\n` +
-        `🖥 Сервер: \`${serverLabel(cfg)}\`\n` +
-        `${panelExtra ? `${panelExtra}\n` : ''}` +
-        `\n📋 *Ссылка для подключения:*\n` +
-        `\`${cfg.config_link || 'Генерируется...'}\``;
-
-      if (cfg.qrCode) {
-        // Send QR code as photo
-        const qrBuffer = Buffer.from(cfg.qrCode.split(',')[1], 'base64');
-        await ctx.replyWithPhoto(
-          { source: qrBuffer },
-          {
-            caption: configText,
-            parse_mode: 'Markdown',
-            ...Markup.inlineKeyboard([
-              ...connectRow,
-              [Markup.button.callback('🔄 Обновить конфиг', 'my_vpn')],
-              [Markup.button.callback('💳 Продлить', 'subscribe')],
-            ]),
-          },
-        );
-      } else {
-        await ctx.replyWithMarkdown(
-          configText,
-          Markup.inlineKeyboard([
-            ...connectRow,
-            [Markup.button.callback('🔄 Обновить', 'my_vpn')],
-            [Markup.button.callback('💳 Продлить', 'subscribe')],
-          ]),
-        );
-      }
-    } catch (err) {
-      logger.error('Error sending VPN config', { configId: cfg.id, error: err.message });
+  // Add traffic info if available
+  if (
+    snap?.usedTrafficBytes != null &&
+    snap?.trafficLimitBytes != null &&
+    snap.trafficLimitBytes > 0
+  ) {
+    const used = formatTrafficUsed(snap.usedTrafficBytes);
+    const limit = formatTrafficUsed(snap.trafficLimitBytes);
+    if (used && limit) {
+      messageText += `\n📊 Трафик: ${used} / ${limit}`;
     }
   }
+
+  messageText += `\n\n💡 Нажмите кнопку ниже для получения ссылки`;
+
+  // Build keyboard
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('📷 Запросить подключение', `show_qr_${mainConfig.id}`)],
+    [Markup.button.callback('💳 Продлить подписку', 'subscribe')],
+    [Markup.button.callback('◀️ В меню', 'menu')],
+  ]);
+
+  if (ctx.callbackQuery) {
+    if (ctx.callbackQuery.message?.photo) {
+      await ctx.deleteMessage().catch(() => {});
+      return ctx.replyWithMarkdown(messageText, keyboard);
+    }
+    return ctx.editMessageText(messageText, { parse_mode: 'Markdown', ...keyboard });
+  }
+
+  return ctx.replyWithMarkdown(messageText, keyboard);
+};
+
+/**
+ * Show connection details with QR option
+ */
+module.exports.showQr = async (ctx, configId) => {
+  if (ctx.callbackQuery) await ctx.answerCbQuery();
+
+  const user = ctx.state.user;
+
+  const configs = await VpnService.getConfigsForUser(user.id);
+  const cfg = configs.find((c) => c.id === parseInt(configId, 10));
+
+  if (!cfg) {
+    return ctx.answerCbQuery('⚠️ Конфигурация не найдена', { show_alert: true });
+  }
+
+  const link = String(cfg.config_link || '').trim();
+  const isSubscription = link.startsWith('http://') || link.startsWith('https://');
+
+  const configText = buildFullConfigText(cfg);
+
+  const keyboardRows = [];
+
+  // Add "Connect" button for subscription links
+  if (isSubscription) {
+    keyboardRows.push([Markup.button.url('🚀 Открыть в приложении', link)]);
+  }
+
+  // Add QR button if QR code exists
+  if (cfg.qrCode) {
+    keyboardRows.push([Markup.button.callback('📷 Открыть QR-код', `show_qr_image_${cfg.id}`)]);
+  }
+
+  keyboardRows.push([Markup.button.callback('📋 Скопировать ссылку', `copy_link_${cfg.id}`)]);
+  keyboardRows.push([Markup.button.callback('◀️ К списку', 'my_vpn')]);
+  keyboardRows.push([Markup.button.callback('🏠 В меню', 'menu')]);
+
+  const keyboard = Markup.inlineKeyboard(keyboardRows);
+
+  if (ctx.callbackQuery?.message?.photo) {
+    return ctx.editMessageCaption(configText, {
+      parse_mode: 'Markdown',
+      ...keyboard,
+    });
+  }
+
+  await ctx.deleteMessage().catch(() => {});
+  return ctx.replyWithMarkdown(configText, keyboard);
+};
+
+/**
+ * Show QR code image
+ */
+module.exports.showQrImage = async (ctx, configId) => {
+  if (ctx.callbackQuery) await ctx.answerCbQuery();
+
+  const user = ctx.state.user;
+
+  const configs = await VpnService.getConfigsForUser(user.id);
+  const cfg = configs.find((c) => c.id === parseInt(configId, 10));
+
+  if (!cfg || !cfg.qrCode) {
+    return ctx.answerCbQuery('⚠️ QR-код недоступен', { show_alert: true });
+  }
+
+  const link = String(cfg.config_link || '').trim();
+  const isSubscription = link.startsWith('http://') || link.startsWith('https://');
+
+  const configText = buildFullConfigText(cfg);
+
+  const keyboardRows = [];
+
+  if (isSubscription) {
+    keyboardRows.push([Markup.button.url('🚀 Открыть в приложении', link)]);
+  }
+
+  keyboardRows.push([Markup.button.callback('📋 Скопировать ссылку', `copy_link_${cfg.id}`)]);
+  keyboardRows.push([Markup.button.callback('◀️ К списку', 'my_vpn')]);
+  keyboardRows.push([Markup.button.callback('🏠 В меню', 'menu')]);
+
+  const keyboard = Markup.inlineKeyboard(keyboardRows);
+
+  const qrBuffer = Buffer.from(cfg.qrCode.split(',')[1], 'base64');
+
+  if (ctx.callbackQuery?.message?.photo) {
+    return ctx.editMessageCaption(configText, {
+      parse_mode: 'Markdown',
+      ...keyboard,
+    });
+  }
+
+  await ctx.deleteMessage().catch(() => {});
+  return ctx.replyWithPhoto(
+    { source: qrBuffer },
+    {
+      caption: configText,
+      parse_mode: 'Markdown',
+      ...keyboard,
+    },
+  );
+};
+
+/**
+ * Copy link handler - shows link in alert
+ */
+module.exports.copyLink = async (ctx, configId) => {
+  const user = ctx.state.user;
+
+  const configs = await VpnService.getConfigsForUser(user.id);
+  const cfg = configs.find((c) => c.id === parseInt(configId, 10));
+
+  if (!cfg) {
+    return ctx.answerCbQuery('⚠️ Конфигурация не найдена', { show_alert: true });
+  }
+
+  const link = String(cfg.config_link || '').trim();
+
+  // Show link in alert so user can copy it
+  return ctx.answerCbQuery(`Ссылка: ${link}`, { show_alert: true });
 };
