@@ -199,6 +199,152 @@ const PaymentService = {
     return processed;
   },
 
+  // ── YooKassa ──────────────────────────────────────────────────────────────
+
+  /**
+   * Create a YooKassa payment for a plan.
+   * @param {object} opts
+   * @param {number} opts.userId
+   * @param {object} opts.plan
+   * @param {string} opts.returnUrl - URL to redirect after payment
+   */
+  async createYooKassaPayment({ userId, plan, returnUrl }) {
+    const YooKassaService = require('./YooKassaService');
+
+    if (!YooKassaService.enabled) {
+      throw new Error('YooKassa is not configured');
+    }
+
+    const amount = YooKassaService.formatAmount(plan.price_rub);
+
+    // Create pending payment record first
+    const payment = await PaymentService.createPending({
+      userId,
+      planId: plan.id,
+      provider: 'yookassa',
+      amount: plan.price_rub,
+      currency: 'RUB',
+      metadata: {},
+    });
+
+    const yooPayment = await YooKassaService.createPayment({
+      amount,
+      description: `VPNoodles — ${plan.name} (${plan.duration_days} дней)`,
+      metadata: { paymentId: payment.id, planId: plan.id, userId },
+      returnUrl,
+    });
+
+    // Save YooKassa payment ID to payment record
+    await Payment.update(payment.id, {
+      provider_payment_id: yooPayment.id,
+      metadata: JSON.stringify({
+        yookassaPaymentId: yooPayment.id,
+        status: yooPayment.status,
+      }),
+    });
+
+    const confirmationUrl = YooKassaService.getConfirmationUrl(yooPayment);
+
+    logger.info('YooKassa payment created', {
+      paymentId: payment.id,
+      yookassaPaymentId: yooPayment.id,
+      amount,
+      confirmationUrl,
+    });
+
+    return { payment, yooPayment, confirmationUrl };
+  },
+
+  /**
+   * Handle YooKassa webhook notification.
+   * @param {object} payload - webhook payload from YooKassa
+   * @returns {object|null} - { payment, subscription } or null if already processed
+   */
+  async handleYooKassaWebhook(payload) {
+    const YooKassaService = require('./YooKassaService');
+
+    const { type, payment: yooPayment } = YooKassaService.parseWebhookEvent(payload);
+
+    if (type !== 'payment.succeeded') {
+      logger.info('YooKassa webhook ignored', { type, paymentId: yooPayment?.id });
+      return null;
+    }
+
+    const metadata = yooPayment.metadata || {};
+    const paymentId = metadata.paymentId;
+
+    if (!paymentId) {
+      logger.error('YooKassa webhook missing paymentId in metadata', {
+        yookassaPaymentId: yooPayment.id,
+      });
+      return null;
+    }
+
+    const result = await PaymentService.handleSuccess({
+      paymentId,
+      providerPaymentId: yooPayment.id,
+    });
+
+    if (result) {
+      logger.info('YooKassa webhook processed', {
+        paymentId,
+        yookassaPaymentId: yooPayment.id,
+        userId: result.payment.user_id,
+      });
+    }
+
+    return result;
+  },
+
+  /**
+   * Poll YooKassa for pending payments (fallback if webhook fails).
+   * Called by cron every minute.
+   * @returns {number} count of processed payments
+   */
+  async processYooKassaPaid() {
+    const YooKassaService = require('./YooKassaService');
+    if (!YooKassaService.enabled) return 0;
+
+    // Get all pending yookassa payments from DB
+    const pendingPayments = await Payment.findPendingByProvider('yookassa');
+    if (!pendingPayments.length) return 0;
+
+    let processed = 0;
+
+    for (const payment of pendingPayments) {
+      try {
+        const metadata = JSON.parse(payment.metadata || '{}');
+        const yookassaPaymentId = payment.provider_payment_id || metadata.yookassaPaymentId;
+
+        if (!yookassaPaymentId) continue;
+
+        const yooPayment = await YooKassaService.getPayment(yookassaPaymentId);
+
+        if (yooPayment.status === 'succeeded') {
+          await PaymentService.handleSuccess({
+            paymentId: payment.id,
+            providerPaymentId: yookassaPaymentId,
+          });
+          processed++;
+          logger.info('YooKassa payment processed via polling', {
+            paymentId: payment.id,
+            yookassaPaymentId,
+          });
+        } else if (yooPayment.status === 'canceled') {
+          await PaymentService.handleFailed(payment.id);
+          logger.info('YooKassa payment canceled', { paymentId: payment.id });
+        }
+      } catch (err) {
+        logger.error('YooKassa polling error for payment', {
+          paymentId: payment.id,
+          error: err.message,
+        });
+      }
+    }
+
+    return processed;
+  },
+
   // ── Common ─────────────────────────────────────────────────────────────────
 
   async handleFailed(paymentId) {

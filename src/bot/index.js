@@ -98,6 +98,12 @@ async function createBot() {
   // CryptoPay — handle asset selection
   bot.action(/^crypto_(\d+)_([A-Z]+)$/, subscribeHandler);
 
+  // YooKassa — handle payment initiation
+  bot.action(/^buy_yookassa_(\d+)$/, subscribeHandler);
+
+  // YooKassa — handle asset selection
+  bot.action(/^check_yookassa_(\d+)$/, subscribeHandler);
+
   // CryptoPay — manual check payment status
   bot.action(/^check_crypto_(\d+)$/, async (ctx) => {
     await ctx.answerCbQuery('Проверяем оплату...');

@@ -60,6 +60,18 @@ module.exports = async (ctx) => {
     return handlePlanPurchase(ctx, user, parseInt(planMatch[1], 10));
   }
 
+  // ── Handle YooKassa payment: buy_yookassa_<planId> ───────────────────────
+  const yookassaMatch = data.match(/^buy_yookassa_(\d+)$/);
+  if (yookassaMatch) {
+    return handleYooKassaPayment(ctx, user, parseInt(yookassaMatch[1], 10));
+  }
+
+  // ── Handle YooKassa check: check_yookassa_<planId> ───────────────────────
+  const yookassaCheckMatch = data.match(/^check_yookassa_(\d+)$/);
+  if (yookassaCheckMatch) {
+    return handleYooKassaCheck(ctx, user, parseInt(yookassaCheckMatch[1], 10));
+  }
+
   // ── Show plans list ────────────────────────────────────────────────────────
   const plans = await Plan.findAllPublic();
 
@@ -122,6 +134,15 @@ async function showPlanDetail(ctx, planId) {
       Markup.button.callback(
         `💎 Оплатить криптой ($${(plan.price_usd / 100).toFixed(2)})`,
         `buy_crypto_${plan.id}`,
+      ),
+    ]);
+  }
+
+  if (config.payments.yookassa.enabled && plan.price_rub > 0) {
+    buttons.push([
+      Markup.button.callback(
+        `💳 Оплатить картой (${(plan.price_rub / 100).toFixed(0)} ₽)`,
+        `buy_yookassa_${plan.id}`,
       ),
     ]);
   }
@@ -319,6 +340,86 @@ async function handlePlanPurchase(ctx, user, planId) {
   } catch (err) {
     logger.error('Plan purchase error', { error: err.message, userId: user.id, planId });
     await ctx.reply('⚠️ Ошибка при создании счёта. Попробуйте позже.');
+  }
+}
+
+// ── Handle YooKassa payment ────────────────────────────────────────────────
+
+async function handleYooKassaPayment(ctx, user, planId) {
+  const plan = await Plan.findById(planId);
+  if (!plan) return ctx.reply('❌ План не найден.');
+
+  const hasPhoto = ctx.callbackQuery?.message?.photo;
+
+  try {
+    if (hasPhoto) {
+      await ctx.editMessageCaption('⏳ Создаём счёт...');
+    } else {
+      await ctx.editMessageText('⏳ Создаём счёт...');
+    }
+
+    // Build return URL - redirect back to bot after payment
+    const returnUrl = config.telegram.webhookDomain
+      ? `${config.telegram.webhookDomain}/payment/success`
+      : `https://t.me/${config.telegram.username}`;
+
+    const { confirmationUrl } = await PaymentService.createYooKassaPayment({
+      userId: user.id,
+      plan,
+      returnUrl,
+    });
+
+    if (!confirmationUrl) {
+      throw new Error('Failed to get confirmation URL from YooKassa');
+    }
+
+    const text =
+      `💳 *Оплата банковской картой*\n\n` +
+      `📋 План: *${plan.name}*\n` +
+      `💰 Сумма: *${(plan.price_rub / 100).toFixed(0)} ₽*\n\n` +
+      `Нажмите кнопку ниже для перехода к оплате:`;
+
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.url(`💳 Оплатить ${(plan.price_rub / 100).toFixed(0)} ₽`, confirmationUrl)],
+      [Markup.button.callback('🔄 Проверить оплату', `check_yookassa_${plan.id}`)],
+      [Markup.button.callback('◀️ Отмена', 'subscribe')],
+    ]);
+
+    await ctx.editMessageText(text, {
+      parse_mode: 'Markdown',
+      ...keyboard,
+    });
+  } catch (err) {
+    logger.error('YooKassa payment creation error', { error: err.message, userId: user.id });
+    await ctx.reply('⚠️ Ошибка при создании счёта. Попробуйте позже.');
+  }
+}
+
+// ── Handle YooKassa payment check ──────────────────────────────────────────
+
+async function handleYooKassaCheck(ctx, user, planId) {
+  await ctx.answerCbQuery('Проверяем оплату...');
+
+  try {
+    const count = await PaymentService.processYooKassaPaid();
+
+    if (count > 0) {
+      const text = '✅ Оплата подтверждена! Нажмите "Мой VPN" для получения конфигурации.';
+      const keyboard = Markup.inlineKeyboard([[Markup.button.callback('📱 Мой VPN', 'my_vpn')]]);
+
+      if (ctx.callbackQuery?.message?.photo) {
+        await ctx.editMessageCaption(text, { parse_mode: 'Markdown', ...keyboard });
+      } else {
+        await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+      }
+    } else {
+      await ctx.answerCbQuery('⏳ Оплата ещё не поступила. Попробуйте через минуту.', {
+        show_alert: true,
+      });
+    }
+  } catch (err) {
+    logger.error('YooKassa check error', { error: err.message, userId: user.id });
+    await ctx.answerCbQuery('⚠️ Ошибка проверки. Попробуйте позже.', { show_alert: true });
   }
 }
 

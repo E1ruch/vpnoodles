@@ -86,6 +86,7 @@ const config = {
 
     // YooKassa (optional)
     yookassa: {
+      enabled: process.env.YOOKASSA_ENABLED === 'true',
       shopId: process.env.YOOKASSA_SHOP_ID || '',
       secretKey: process.env.YOOKASSA_SECRET_KEY || '',
     },

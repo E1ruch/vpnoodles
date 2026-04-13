@@ -1,7 +1,7 @@
 # 🌐 VPNoodles Bot
 
 > Масштабируемый Telegram-бот для продажи VPN/Proxy подписок.  
-> Node.js · Telegraf · PostgreSQL · Redis · Docker
+> Node.js · Telegraf · PostgreSQL · Docker
 
 ---
 
@@ -35,6 +35,7 @@ vpnoodles/
 │   │   ├── UserService.js        # Регистрация, рефералы, бан
 │   │   ├── SubscriptionService.js# Активация, продление, истечение
 │   │   ├── VpnService.js         # Фасад над VPN-панелью
+│   │   ├── YookassaService.js    # Платежный шлюз YooKassa
 │   │   ├── PaymentService.js     # Платежи (Stars, YooKassa, Cryptomus)
 │   │   └── vpn/
 │   │       └── RemnawaveAdapter.js # Remnawave Panel API
@@ -55,9 +56,11 @@ vpnoodles/
 │   │   └── index.js              # Cron-задачи (истечение, уведомления)
 │   └── utils/
 │       └── logger.js             # Winston logger
+│   └── webhooks/
+│       └── yookassa.js           # Yookassa
 ├── .env.example                  # Шаблон переменных окружения
 ├── Dockerfile                    # Multi-stage Docker build
-├── docker-compose.yml            # Bot + PostgreSQL + Redis
+├── docker-compose.yml            # Bot + PostgreSQL
 └── package.json
 ```
 
@@ -83,7 +86,7 @@ vpnoodles/
 
 ```bash
 cp .env.example .env
-# Заполните .env: BOT_TOKEN, DB_*, REDIS_*, VPN_PANEL_*
+# Заполните .env: BOT_TOKEN, DB_*, VPN_PANEL_*
 ```
 
 ### 2. Запуск через Docker (рекомендуется)
@@ -126,24 +129,24 @@ npm run dev
 
 Ключевые:
 
-| Переменная       | Описание                             |
-| ---------------- | ------------------------------------ |
-| `BOT_TOKEN`      | Токен от @BotFather                  |
-| `ADMIN_IDS`      | Telegram ID администраторов          |
-| `BOT_MODE`       | `polling` (dev) или `webhook` (prod) |
-| `VPN_API_TOKEN`  | API-токен Remnawave                  |
-| `VPN_PANEL_URL`  | URL панели Remnawave                 |
-| `STARS_ENABLED`  | Включить оплату Telegram Stars       |
+| Переменная      | Описание                             |
+| --------------- | ------------------------------------ |
+| `BOT_TOKEN`     | Токен от @BotFather                  |
+| `ADMIN_IDS`     | Telegram ID администраторов          |
+| `BOT_MODE`      | `polling` (dev) или `webhook` (prod) |
+| `VPN_API_TOKEN` | API-токен Remnawave                  |
+| `VPN_PANEL_URL` | URL панели Remnawave                 |
+| `STARS_ENABLED` | Включить оплату Telegram Stars       |
 
 ---
 
 ## 💳 Платёжные системы
 
-| Провайдер      | Статус                  | Описание                     |
-| -------------- | ----------------------- | ---------------------------- |
-| Telegram Stars | ✅ Готово               | Встроенная оплата в Telegram |
-| YooKassa       | 🔧 Готово к подключению | RUB платежи                  |
-| Cryptomus      | 🔧 Готово к подключению | Крипто платежи               |
+| Провайдер      | Статус    | Описание                     |
+| -------------- | --------- | ---------------------------- |
+| Telegram Stars | ✅ Готово | Встроенная оплата в Telegram |
+| YooKassa       | ✅ Готово | RUB платежи                  |
+| CryptoBot      | ✅ Готово | Крипто платежи               |
 
 ---
 
@@ -167,7 +170,7 @@ npm run dev
 ### Горизонтальное масштабирование
 
 - Бот поддерживает **webhook-режим** для запуска нескольких инстансов
-- Сессии хранятся в **Redis** — инстансы не зависят друг от друга
+- [Отключено] Сессии хранятся в **Redis** — инстансы не зависят друг от друга
 - PostgreSQL с **connection pooling** (Knex)
 
 ### Будущие улучшения
