@@ -469,7 +469,8 @@ async function showPendingInvoice(ctx, payment) {
       [Markup.button.callback('◀️ Меню', 'menu')],
     ];
   } else if (payment.provider === 'cryptopay') {
-    const metadata = JSON.parse(payment.metadata || '{}');
+    const metadata =
+      typeof payment.metadata === 'string' ? JSON.parse(payment.metadata) : payment.metadata || {};
     const invoiceUrl = metadata.invoiceUrl || '';
     const asset = metadata.asset || payment.currency;
 
@@ -486,7 +487,8 @@ async function showPendingInvoice(ctx, payment) {
       [Markup.button.callback('◀️ Меню', 'menu')],
     ];
   } else if (payment.provider === 'yookassa') {
-    const metadata = JSON.parse(payment.metadata || '{}');
+    const metadata =
+      typeof payment.metadata === 'string' ? JSON.parse(payment.metadata) : payment.metadata || {};
     const yookassaPaymentId = payment.provider_payment_id || metadata.yookassaPaymentId;
 
     // We need to get confirmation URL from YooKassa or show check button
