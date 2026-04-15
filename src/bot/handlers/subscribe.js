@@ -474,8 +474,9 @@ async function showPendingInvoice(ctx, payment) {
     const invoiceUrl = metadata.invoiceUrl || '';
     const asset = metadata.asset || payment.currency;
 
-    // CryptoPay stores amount in actual units (not cents)
-    const displayAmount = payment.amount;
+    // Use displayAmount from metadata (real crypto amount, e.g. "1.99")
+    // Fallback to payment.amount / 100 if displayAmount not set
+    const displayAmount = metadata.displayAmount || (payment.amount / 100).toFixed(2);
 
     statusText =
       `⏳ *У вас есть неоплаченный счёт*\n\n` +

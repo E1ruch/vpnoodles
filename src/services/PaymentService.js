@@ -99,14 +99,15 @@ const PaymentService = {
     const amount = CryptoPayService.formatAmount(plan.price_usd, asset);
 
     // Create pending payment record first
-    // Note: amount is in actual units (not cents) for CryptoPay
+    // Note: amount column is integer (cents), so we store plan.price_usd there
+    // Real crypto amount is stored in metadata for display
     const payment = await PaymentService.createPending({
       userId,
       planId: plan.id,
       provider: 'cryptopay',
-      amount: amount, // actual amount from CryptoPay (not plan.price_usd in cents)
+      amount: plan.price_usd, // in cents (integer)
       currency: asset,
-      metadata: { asset },
+      metadata: { asset, displayAmount: amount }, // real amount for display
     });
 
     const invoice = await CryptoPayService.createInvoice({
@@ -122,6 +123,7 @@ const PaymentService = {
       provider_payment_id: String(invoice.invoice_id),
       metadata: JSON.stringify({
         asset,
+        displayAmount: amount, // real amount for display (e.g. "1.99")
         invoiceId: invoice.invoice_id,
         invoiceUrl: invoice.bot_invoice_url,
       }),
