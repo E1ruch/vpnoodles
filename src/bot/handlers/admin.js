@@ -14,39 +14,54 @@ const logger = require('../../utils/logger');
  * Only accessible to users listed in ADMIN_IDS.
  */
 module.exports = async (ctx) => {
-  if (ctx.callbackQuery) await ctx.answerCbQuery();
+  try {
+    if (ctx.callbackQuery) await ctx.answerCbQuery();
 
-  if (!ctx.state.isAdmin) {
-    return ctx.reply('🚫 Доступ запрещён.');
-  }
+    if (!ctx.state.isAdmin) {
+      return ctx.reply('🚫 Доступ запрещён.');
+    }
 
-  const action = ctx.callbackQuery?.data || '';
+    const action = ctx.callbackQuery?.data || '';
 
-  // ── Route admin actions ────────────────────────────────────────────────────
-  if (action.startsWith('admin_ban_')) {
-    return handleBan(ctx, action.replace('admin_ban_', ''));
-  }
-  if (action.startsWith('admin_unban_')) {
-    return handleUnban(ctx, action.replace('admin_unban_', ''));
-  }
-  if (action.startsWith('admin_extend_')) {
-    return handleExtend(ctx, action.replace('admin_extend_', ''));
-  }
-  if (action === 'admin_stats') {
-    return handleStats(ctx);
-  }
-  if (action === 'admin_broadcast') {
-    return handleBroadcastStart(ctx);
-  }
-  if (action === 'admin_find_user') {
-    return handleFindUserStart(ctx);
-  }
-  if (action.startsWith('admin_user_')) {
-    return handleUserDetail(ctx, action.replace('admin_user_', ''));
-  }
+    logger.debug('Admin handler called', { action, isCallback: !!ctx.callbackQuery });
 
-  // ── Default: show admin menu ───────────────────────────────────────────────
-  return showAdminMenu(ctx);
+    // ── Route admin actions ────────────────────────────────────────────────────
+    if (action.startsWith('admin_ban_')) {
+      return handleBan(ctx, action.replace('admin_ban_', ''));
+    }
+    if (action.startsWith('admin_unban_')) {
+      return handleUnban(ctx, action.replace('admin_unban_', ''));
+    }
+    if (action.startsWith('admin_extend_')) {
+      return handleExtend(ctx, action.replace('admin_extend_', ''));
+    }
+    if (action === 'admin_stats') {
+      return handleStats(ctx);
+    }
+    if (action === 'admin_broadcast') {
+      return handleBroadcastStart(ctx);
+    }
+    if (action === 'admin_find_user') {
+      return handleFindUserStart(ctx);
+    }
+    if (action.startsWith('admin_user_')) {
+      return handleUserDetail(ctx, action.replace('admin_user_', ''));
+    }
+
+    // ── Default: show admin menu ───────────────────────────────────────────────
+    return showAdminMenu(ctx);
+  } catch (err) {
+    logger.error('Admin handler error', { error: err.message, stack: err.stack });
+    // Ensure callback is answered even on error
+    if (ctx.callbackQuery) {
+      try {
+        await ctx.answerCbQuery('⚠️ Произошла ошибка');
+      } catch {
+        /* ignore */
+      }
+    }
+    return ctx.reply('⚠️ Произошла ошибка. Попробуйте позже.').catch(() => {});
+  }
 };
 
 async function showAdminMenu(ctx) {
@@ -107,10 +122,17 @@ async function handleStats(ctx) {
     `🖥 *VPN Panel:*\n` +
     `\`${JSON.stringify(vpnStats, null, 2).slice(0, 300)}\``;
 
-  await ctx.replyWithMarkdown(
-    text,
-    Markup.inlineKeyboard([[Markup.button.callback('◀️ Назад', 'admin')]]),
-  );
+  const keyboard = Markup.inlineKeyboard([[Markup.button.callback('◀️ Назад', 'admin')]]);
+
+  if (ctx.callbackQuery) {
+    if (ctx.callbackQuery.message?.photo) {
+      await ctx.editMessageCaption(text, { parse_mode: 'Markdown', ...keyboard });
+    } else {
+      await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    }
+  } else {
+    await ctx.replyWithMarkdown(text, keyboard);
+  }
 }
 
 async function handleBan(ctx, telegramId) {
@@ -279,5 +301,6 @@ async function handleBroadcastCommand(ctx) {
 }
 
 // Export additional handlers for command registration
-module.exports.handleUserCommand = handleUserCommand;
-module.exports.handleBroadcastCommand = handleBroadcastCommand;
+const adminHandler = module.exports;
+adminHandler.handleUserCommand = handleUserCommand;
+adminHandler.handleBroadcastCommand = handleBroadcastCommand;

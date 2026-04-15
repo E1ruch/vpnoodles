@@ -78,7 +78,7 @@ async function createBot() {
 
   // ── Callback queries ──────────────────────────────────────────────────────
   bot.action('menu', menuHandler);
-  bot.action('admin', adminHandler);
+  bot.action(/^admin/, adminHandler); // Handles admin, admin_stats, admin_broadcast, etc.
   bot.action('subscribe', subscribeHandler);
   bot.action('trial', subscribeHandler); // "Попробовать бесплатно"
   bot.action('my_vpn', myVpnHandler);
