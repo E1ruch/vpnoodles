@@ -99,11 +99,12 @@ const PaymentService = {
     const amount = CryptoPayService.formatAmount(plan.price_usd, asset);
 
     // Create pending payment record first
+    // Note: amount is in actual units (not cents) for CryptoPay
     const payment = await PaymentService.createPending({
       userId,
       planId: plan.id,
       provider: 'cryptopay',
-      amount: plan.price_usd,
+      amount: amount, // actual amount from CryptoPay (not plan.price_usd in cents)
       currency: asset,
       metadata: { asset },
     });
