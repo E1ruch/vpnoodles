@@ -73,9 +73,12 @@ async function createBot() {
   bot.command('subscribe', subscribeHandler);
   bot.command('referral', referralHandler);
   bot.command('admin', adminHandler);
+  bot.command('user', adminHandler.handleUserCommand);
+  bot.command('broadcast', adminHandler.handleBroadcastCommand);
 
   // ── Callback queries ──────────────────────────────────────────────────────
   bot.action('menu', menuHandler);
+  bot.action('admin', adminHandler);
   bot.action('subscribe', subscribeHandler);
   bot.action('trial', subscribeHandler); // "Попробовать бесплатно"
   bot.action('my_vpn', myVpnHandler);
