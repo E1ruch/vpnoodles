@@ -108,6 +108,10 @@ const config = {
     expiryDaysBefore: parseInt(process.env.NOTIFY_EXPIRY_DAYS_BEFORE, 10) || 3,
   },
 
+  // ── Support ──────────────────────────────────────────────────────────────
+  supportText:
+    process.env.SUPPORT_TEXT || '📞 Для связи с поддержкой напишите @your_support_username',
+
   // ── Security ──────────────────────────────────────────────────────────────
   security: {
     jwtSecret: process.env.JWT_SECRET || 'change_me',

@@ -3,6 +3,7 @@
 const cron = require('node-cron');
 const SubscriptionService = require('../services/SubscriptionService');
 const PaymentService = require('../services/PaymentService');
+const PaymentReminderService = require('../services/PaymentReminderService');
 const config = require('../config');
 const logger = require('../utils/logger');
 
@@ -68,6 +69,23 @@ function registerCronJobs(bot) {
     });
     logger.info('YooKassa polling cron registered (every minute)');
   }
+
+  // ── Payment reminders and expiration — every minute ──────────────────────────
+  cron.schedule('* * * * *', async () => {
+    try {
+      const result = await PaymentReminderService.processAll(bot);
+      if (result.reminders30 > 0 || result.reminders50 > 0 || result.canceled > 0) {
+        logger.info('Cron: payment reminders processed', {
+          reminders30: result.reminders30,
+          reminders50: result.reminders50,
+          canceled: result.canceled,
+        });
+      }
+    } catch (err) {
+      logger.error('Cron: payment reminders failed', { error: err.message });
+    }
+  });
+  logger.info('Payment reminders cron registered (every minute)');
 
   logger.info('Cron jobs registered');
 }

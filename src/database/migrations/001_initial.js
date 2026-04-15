@@ -65,7 +65,7 @@ exports.up = async function (knex) {
     t.integer('subscription_id').references('id').inTable('subscriptions').onDelete('SET NULL');
     t.string('provider', 32).notNullable(); // stars | yookassa | cryptomus | manual
     t.string('provider_payment_id', 256); // external payment ID
-    t.string('status', 32).notNullable().defaultTo('pending'); // pending | paid | failed | refunded
+    t.string('status', 32).notNullable().defaultTo('pending'); // pending | paid | failed | refunded | canceled
     t.integer('amount').notNullable(); // in smallest unit (kopecks / cents / stars)
     t.string('currency', 8).notNullable().defaultTo('XTR'); // XTR=Stars, RUB, USD
     t.jsonb('metadata').defaultTo('{}');

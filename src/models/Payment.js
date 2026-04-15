@@ -89,6 +89,85 @@ const Payment = {
       .orderBy('updated_at', 'desc');
   },
 
+  // ── Payment Reminders ────────────────────────────────────────────────────────
+
+  /**
+   * Find pending payments that need 30-minute reminder.
+   * Created 30-50 minutes ago, reminder not sent yet.
+   */
+  async findPendingFor30MinReminder() {
+    const now = new Date();
+    const minAge = new Date(now - 50 * 60 * 1000); // 50 min ago
+    const maxAge = new Date(now - 30 * 60 * 1000); // 30 min ago
+
+    return db(TABLE)
+      .where({ status: 'pending' })
+      .where('created_at', '<=', maxAge)
+      .where('created_at', '>=', minAge)
+      .whereNull('reminder_30_sent_at');
+  },
+
+  /**
+   * Find pending payments that need 50-minute reminder.
+   * Created 50-60 minutes ago, reminder not sent yet.
+   */
+  async findPendingFor50MinReminder() {
+    const now = new Date();
+    const minAge = new Date(now - 60 * 60 * 1000); // 60 min ago
+    const maxAge = new Date(now - 50 * 60 * 1000); // 50 min ago
+
+    return db(TABLE)
+      .where({ status: 'pending' })
+      .where('created_at', '<=', maxAge)
+      .where('created_at', '>=', minAge)
+      .whereNull('reminder_50_sent_at');
+  },
+
+  /**
+   * Find pending payments that are expired (60+ minutes old).
+   */
+  async findExpiredPending() {
+    const threshold = new Date(Date.now() - 60 * 60 * 1000);
+    return db(TABLE).where({ status: 'pending' }).where('created_at', '<=', threshold);
+  },
+
+  /**
+   * Mark 30-minute reminder as sent.
+   * Uses atomic update to prevent race conditions.
+   * @returns {boolean} true if updated, false if already sent
+   */
+  async markReminder30Sent(id) {
+    const result = await db(TABLE)
+      .where({ id, reminder_30_sent_at: null })
+      .update({ reminder_30_sent_at: db.fn.now(), updated_at: db.fn.now() });
+    return result > 0;
+  },
+
+  /**
+   * Mark 50-minute reminder as sent.
+   * Uses atomic update to prevent race conditions.
+   * @returns {boolean} true if updated, false if already sent
+   */
+  async markReminder50Sent(id) {
+    const result = await db(TABLE)
+      .where({ id, reminder_50_sent_at: null })
+      .update({ reminder_50_sent_at: db.fn.now(), updated_at: db.fn.now() });
+    return result > 0;
+  },
+
+  /**
+   * Cancel expired payment atomically.
+   * Only cancels if status is still 'pending'.
+   * @returns {object|null} updated payment or null if already processed
+   */
+  async cancelIfPending(id) {
+    const [row] = await db(TABLE)
+      .where({ id, status: 'pending' })
+      .update({ status: 'canceled', updated_at: db.fn.now() })
+      .returning('*');
+    return row || null;
+  },
+
   // ── Stats ──────────────────────────────────────────────────────────────────
 
   async totalRevenue(currency = 'RUB') {

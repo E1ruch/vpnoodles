@@ -147,6 +147,82 @@ async function createBot() {
     }
   });
 
+  // ── Payment reminder callbacks ──────────────────────────────────────────────
+  bot.action(/^remind_pay_(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const paymentId = parseInt(ctx.match[1], 10);
+    const Payment = require('../models/Payment');
+    const Plan = require('../models/Plan');
+    const { Markup } = require('telegraf');
+
+    try {
+      const payment = await Payment.findById(paymentId);
+
+      // Check if payment exists and belongs to user
+      if (!payment || payment.user_id !== ctx.state.user.id) {
+        return ctx.editMessageText('❌ Платёж не найден.', {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Меню', 'menu')]]),
+        });
+      }
+
+      // Check payment status
+      if (payment.status === 'paid') {
+        return ctx.editMessageText('✅ Этот платёж уже был оплачен.', {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('📱 Мой VPN', 'my_vpn')],
+            [Markup.button.callback('◀️ Меню', 'menu')],
+          ]),
+        });
+      }
+
+      if (payment.status === 'canceled') {
+        return ctx.editMessageText('⏰ Время на оплату истекло. Выберите план заново.', {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([
+            [Markup.button.callback('💳 Выбрать план', 'subscribe')],
+            [Markup.button.callback('◀️ Меню', 'menu')],
+          ]),
+        });
+      }
+
+      // Payment is still pending - show plan details to continue payment
+      const plan = await Plan.findById(payment.plan_id);
+      if (!plan) {
+        return ctx.editMessageText('❌ План не найден.', {
+          parse_mode: 'Markdown',
+          ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Меню', 'menu')]]),
+        });
+      }
+
+      // Redirect to plan detail
+      return subscribeHandler.showPlanDetail(ctx, plan.id);
+    } catch (err) {
+      logger.error('Failed to handle remind_pay callback', {
+        paymentId,
+        error: err.message,
+      });
+      return ctx.editMessageText('⚠️ Ошибка. Попробуйте позже.', {
+        parse_mode: 'Markdown',
+        ...Markup.inlineKeyboard([[Markup.button.callback('◀️ Меню', 'menu')]]),
+      });
+    }
+  });
+
+  // Support callback
+  bot.action('support', async (ctx) => {
+    await ctx.answerCbQuery();
+    const supportText =
+      config.supportText || 'Для связи с поддержкой напишите @your_support_username';
+    return ctx.editMessageText(supportText, {
+      parse_mode: 'Markdown',
+      ...require('telegraf').Markup.inlineKeyboard([
+        [require('telegraf').Markup.button.callback('◀️ Меню', 'menu')],
+      ]),
+    });
+  });
+
   // ── Payments ──────────────────────────────────────────────────────────────
   bot.on('pre_checkout_query', paymentHandler.preCheckout);
   bot.on('successful_payment', paymentHandler.successfulPayment);
