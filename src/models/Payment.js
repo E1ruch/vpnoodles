@@ -132,6 +132,17 @@ const Payment = {
   },
 
   /**
+   * Find active pending payment for a user.
+   * Returns the most recent pending payment or null.
+   */
+  async findPendingByUserId(userId) {
+    return db(TABLE)
+      .where({ user_id: userId, status: 'pending' })
+      .orderBy('created_at', 'desc')
+      .first();
+  },
+
+  /**
    * Mark 30-minute reminder as sent.
    * Uses atomic update to prevent race conditions.
    * @returns {boolean} true if updated, false if already sent

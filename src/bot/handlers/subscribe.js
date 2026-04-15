@@ -2,6 +2,7 @@
 
 const { Markup } = require('telegraf');
 const Plan = require('../../models/Plan');
+const Payment = require('../../models/Payment');
 const SubscriptionService = require('../../services/SubscriptionService');
 const PaymentService = require('../../services/PaymentService');
 const VpnService = require('../../services/VpnService');
@@ -36,6 +37,15 @@ module.exports = async (ctx) => {
 
   const user = ctx.state.user;
   const data = ctx.callbackQuery?.data || '';
+
+  // ── Check for existing pending invoice ─────────────────────────────────────
+  // If user has pending payment, show it instead of plan list
+  if (data === 'subscribe' || !data) {
+    const pendingPayment = await Payment.findPendingByUserId(user.id);
+    if (pendingPayment) {
+      return showPendingInvoice(ctx, pendingPayment);
+    }
+  }
 
   // ── Handle trial activation ────────────────────────────────────────────────
   if (data === 'trial') {
@@ -423,5 +433,97 @@ async function handleYooKassaCheck(ctx, user, planId) {
   }
 }
 
+// ── Show existing pending invoice ──────────────────────────────────────────
+
+async function showPendingInvoice(ctx, payment) {
+  const plan = await Plan.findById(payment.plan_id);
+  if (!plan) {
+    // If plan not found, cancel payment and show plans
+    await Payment.cancelIfPending(payment.id);
+    return ctx.editMessageText('❌ План не найден. Выберите новый план.', {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([[Markup.button.callback('💳 Выбрать план', 'subscribe')]]),
+    });
+  }
+
+  // Calculate remaining time
+  const createdAt = new Date(payment.created_at);
+  const expiresAt = new Date(createdAt.getTime() + 60 * 60 * 1000);
+  const remainingMs = expiresAt - Date.now();
+  const remainingMin = Math.max(0, Math.floor(remainingMs / 60000));
+
+  let statusText = '';
+  let buttons = [];
+
+  // Build buttons based on payment provider
+  if (payment.provider === 'stars') {
+    statusText =
+      `⏳ *У вас есть неоплаченный счёт*\n\n` +
+      `📋 План: *${plan.name}*\n` +
+      `💰 Сумма: *${payment.amount} ⭐*\n` +
+      `⏰ Осталось: *${remainingMin} мин*\n\n` +
+      `Нажмите "Произвести оплату" для оплаты через Telegram Stars.`;
+    buttons = [
+      [Markup.button.callback('💳 Произвести оплату', `pay_stars_${payment.id}`)],
+      [Markup.button.callback('❌ Отказаться', `cancel_payment_${payment.id}`)],
+      [Markup.button.callback('◀️ Меню', 'menu')],
+    ];
+  } else if (payment.provider === 'cryptopay') {
+    const metadata = JSON.parse(payment.metadata || '{}');
+    const invoiceUrl = metadata.invoiceUrl || '';
+    const asset = metadata.asset || payment.currency;
+
+    statusText =
+      `⏳ *У вас есть неоплаченный счёт*\n\n` +
+      `📋 План: *${plan.name}*\n` +
+      `💰 Сумма: *${payment.amount} ${asset}*\n` +
+      `⏰ Осталось: *${remainingMin} мин*\n\n` +
+      `Нажмите "Произвести оплату" для перехода к оплате.`;
+    buttons = [
+      [Markup.button.url('💳 Произвести оплату', invoiceUrl)],
+      [Markup.button.callback('🔄 Проверить оплату', `check_crypto_${plan.id}`)],
+      [Markup.button.callback('❌ Отказаться', `cancel_payment_${payment.id}`)],
+      [Markup.button.callback('◀️ Меню', 'menu')],
+    ];
+  } else if (payment.provider === 'yookassa') {
+    const metadata = JSON.parse(payment.metadata || '{}');
+    const yookassaPaymentId = payment.provider_payment_id || metadata.yookassaPaymentId;
+
+    // We need to get confirmation URL from YooKassa or show check button
+    statusText =
+      `⏳ *У вас есть неоплаченный счёт*\n\n` +
+      `📋 План: *${plan.name}*\n` +
+      `💰 Сумма: *${(payment.amount / 100).toFixed(0)} ₽*\n` +
+      `⏰ Осталось: *${remainingMin} мин*\n\n` +
+      `Нажмите "Проверить оплату" если вы уже оплатили.`;
+    buttons = [
+      [Markup.button.callback('🔄 Проверить оплату', `check_yookassa_${plan.id}`)],
+      [Markup.button.callback('❌ Отказаться', `cancel_payment_${payment.id}`)],
+      [Markup.button.callback('◀️ Меню', 'menu')],
+    ];
+  } else {
+    // Unknown provider - cancel and show plans
+    await Payment.cancelIfPending(payment.id);
+    return ctx.editMessageText('❌ Ошибка платежа. Выберите новый план.', {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([[Markup.button.callback('💳 Выбрать план', 'subscribe')]]),
+    });
+  }
+
+  const keyboard = Markup.inlineKeyboard(buttons);
+
+  if (ctx.callbackQuery) {
+    const hasPhoto = ctx.callbackQuery.message?.photo;
+    if (hasPhoto) {
+      await ctx.editMessageCaption(statusText, { parse_mode: 'Markdown', ...keyboard });
+    } else {
+      await ctx.editMessageText(statusText, { parse_mode: 'Markdown', ...keyboard });
+    }
+  } else {
+    await ctx.replyWithMarkdown(statusText, keyboard);
+  }
+}
+
 // Export showPlanDetail for bot/index.js action registration
 module.exports.showPlanDetail = showPlanDetail;
+module.exports.showPendingInvoice = showPendingInvoice;

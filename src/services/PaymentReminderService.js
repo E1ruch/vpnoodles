@@ -68,7 +68,8 @@ const PaymentReminderService = {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-                [{ text: '💳 Продлить', callback_data: `remind_pay_${payment.id}` }],
+                [{ text: '💳 Произвести оплату', callback_data: `remind_pay_${payment.id}` }],
+                [{ text: '❌ Отказаться', callback_data: `cancel_payment_${payment.id}` }],
                 [{ text: '◀️ Меню', callback_data: 'menu' }],
               ],
             },
@@ -144,7 +145,8 @@ const PaymentReminderService = {
             parse_mode: 'Markdown',
             reply_markup: {
               inline_keyboard: [
-                [{ text: '💳 Продлить', callback_data: `remind_pay_${payment.id}` }],
+                [{ text: '💳 Произвести оплату', callback_data: `remind_pay_${payment.id}` }],
+                [{ text: '❌ Отказаться', callback_data: `cancel_payment_${payment.id}` }],
                 [{ text: '📞 Поддержка', callback_data: 'support' }],
                 [{ text: '◀️ Меню', callback_data: 'menu' }],
               ],
