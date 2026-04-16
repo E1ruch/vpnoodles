@@ -30,7 +30,7 @@ module.exports = async (ctx) => {
       `✅ Ваша подписка активна до *${new Date(activeSub.expires_at).toLocaleDateString('ru-RU')}*\n\n` +
       `Используйте меню ниже для управления VPN.`
     : `🌐 Добро пожаловать в *VPNoodles*, *${name}*!\n\n` +
-      `🔒 Быстрый, надёжный и безопасный VPN прямо в Telegram.\n\n` +
+      `🔒 Быстрый, надёжный и безопасный VPN прямо в Telegram!\n\n` +
       `✨ *Что вы получаете:*\n` +
       `• Безлимитный трафик\n` +
       `• Протоколы VLESS / VMess / Trojan\n` +
