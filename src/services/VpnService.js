@@ -15,15 +15,17 @@ function buildPanelMeta(plan, isTrial = false) {
   const meta = {};
 
   // Tag: trial plans get a dedicated tag; paid plans get prefix-slug tag
+  // IMPORTANT: Remnawave requires tags in UPPERCASE (only A-Z, 0-9, underscore)
   if (isTrial) {
-    const trialTag = config.vpnPanel.trialTag || 'trial_user';
-    if (trialTag) meta.tag = trialTag;
+    const trialTag = config.vpnPanel.trialTag || 'TRIAL_USER';
+    if (trialTag) meta.tag = String(trialTag).toUpperCase();
   } else {
-    const prefix = (config.vpnPanel.userTagPrefix || '').trim();
-    const slug = plan?.slug ? String(plan.slug).trim() : '';
-    if (prefix && slug) meta.tag = `${prefix}-${slug}`.slice(0, 128);
-    else if (slug) meta.tag = slug.slice(0, 128);
-    else if (prefix) meta.tag = prefix.slice(0, 128);
+    const prefix = (config.vpnPanel.userTagPrefix || '').trim().toUpperCase();
+    const slug = plan?.slug ? String(plan.slug).trim().toUpperCase() : '';
+    // Use underscore instead of hyphen (Remnawave allows only A-Z, 0-9, _)
+    if (prefix && slug) meta.tag = `${prefix}_${slug}`.replace(/-/g, '_').slice(0, 128);
+    else if (slug) meta.tag = slug.replace(/-/g, '_').slice(0, 128);
+    else if (prefix) meta.tag = prefix.replace(/-/g, '_').slice(0, 128);
   }
 
   // Traffic limit
