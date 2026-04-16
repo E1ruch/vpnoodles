@@ -373,14 +373,18 @@ class RemnawaveAdapter {
   }
 
   async enableUser(username) {
-    const user = await this.getUser(username);
-    const raw = await this._request('PATCH', this._userPath(user), { status: 'ACTIVE' });
+    // Use /users/by-username/{username} endpoint for PATCH
+    const raw = await this._request('PATCH', `/users/by-username/${encodeURIComponent(username)}`, {
+      status: 'ACTIVE',
+    });
     return this._unwrap(raw);
   }
 
   async disableUser(username) {
-    const user = await this.getUser(username);
-    const raw = await this._request('PATCH', this._userPath(user), { status: 'DISABLED' });
+    // Use /users/by-username/{username} endpoint for PATCH
+    const raw = await this._request('PATCH', `/users/by-username/${encodeURIComponent(username)}`, {
+      status: 'DISABLED',
+    });
     return this._unwrap(raw);
   }
 
@@ -437,7 +441,12 @@ class RemnawaveAdapter {
       }
     }
 
-    const raw = await this._request('PATCH', this._userPath(user), body);
+    // Use /users/by-username/{username} endpoint for PATCH
+    const raw = await this._request(
+      'PATCH',
+      `/users/by-username/${encodeURIComponent(username)}`,
+      body,
+    );
     return this._unwrap(raw);
   }
 
