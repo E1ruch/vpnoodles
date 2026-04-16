@@ -316,7 +316,11 @@ const PaymentService = {
 
     for (const payment of pendingPayments) {
       try {
-        const metadata = JSON.parse(payment.metadata || '{}');
+        // Knex may return metadata as object (auto-parsed JSON) or string
+        const metadata =
+          typeof payment.metadata === 'string'
+            ? JSON.parse(payment.metadata)
+            : payment.metadata || {};
         const yookassaPaymentId = payment.provider_payment_id || metadata.yookassaPaymentId;
 
         if (!yookassaPaymentId) continue;
