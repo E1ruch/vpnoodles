@@ -53,6 +53,13 @@ function serverLabel(cfg) {
 }
 
 /**
+ * Escape special characters for Telegram Markdown
+ */
+function escapeMarkdown(text) {
+  return String(text || '').replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
+}
+
+/**
  * Build full config text with link (for connection display)
  */
 function buildFullConfigText(cfg) {
@@ -74,11 +81,12 @@ function buildFullConfigText(cfg) {
     }
   }
 
+  // Don't show full link in text - it contains special chars that break Markdown
+  // User will get the link via button
   return (
-    `🖥 *${serverLabel(cfg)}*\n` +
+    `🖥 *${escapeMarkdown(serverLabel(cfg))}*\n` +
     `📡 Протокол: ${protocolLabel(cfg.protocol)}${extraInfo}\n\n` +
-    `📋 *Ссылка для подключения:*\n` +
-    `\`${cfg.config_link || 'Генерируется...'}\``
+    `💡 Нажмите кнопку ниже для получения ссылки`
   );
 }
 
@@ -148,7 +156,7 @@ module.exports = async (ctx) => {
     `✅ Подписка активна до ${new Date(activeSub.expires_at).toLocaleDateString('ru-RU')}\n` +
     `📅 Осталось: *${daysLeft} ${daysLeft === 1 ? 'день' : daysLeft < 5 ? 'дня' : 'дней'}*\n\n` +
     `🔗 *Ваша подписка:*\n` +
-    `🖥 ${serverLabel(mainConfig)}`;
+    `🖥 ${escapeMarkdown(serverLabel(mainConfig))}`;
 
   // Add device limit if available
   if (snap?.hwidDeviceLimit != null && snap.hwidDeviceLimit !== '') {
