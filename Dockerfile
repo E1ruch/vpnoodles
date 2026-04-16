@@ -8,8 +8,8 @@ FROM node:20-alpine AS deps
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm ls dotenv && ls -la node_modules/dotenv
+COPY package*.json ./
+RUN npm ci --omit=dev 
 
 # ── Stage 2: Production image ─────────────────────────────────────────────────
 FROM node:20-alpine AS production
