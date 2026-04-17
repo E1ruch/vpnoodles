@@ -96,6 +96,7 @@ async function createBot() {
   });
   bot.action('profile', profileHandler);
   bot.action('referral', referralHandler);
+  bot.action('use_bonus_days', referralHandler.handleUseBonusDays);
 
   // Stars payments
   bot.action(/^buy_plan_(\d+)$/, subscribeHandler);

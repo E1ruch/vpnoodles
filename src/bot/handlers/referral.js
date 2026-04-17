@@ -22,21 +22,36 @@ module.exports = async (ctx) => {
     `\`${refLink}\`\n\n` +
     `📊 *Ваша статистика:*\n` +
     `👤 Приглашено: *${stats.total}* чел.\n` +
-    `🎁 Бонусных дней получено: *${stats.totalBonusDays}* дн.\n\n` +
+    `🎁 Бонусных дней доступно: *${stats.availableBonusDays}* дн.\n` +
+    `✅ Бонусных дней использовано: *${stats.totalBonusDays - stats.availableBonusDays}* дн.\n\n` +
     `💡 *Как это работает:*\n` +
     `1. Поделитесь ссылкой с другом\n` +
     `2. Друг регистрируется и оплачивает подписку\n` +
-    `3. Вы получаете +${config.referral.bonusDays} дней к своей подписке`;
+    `3. Вам начисляются бонусные дни\n` +
+    `4. Используйте их для продления подписки`;
 
-  const keyboard = Markup.inlineKeyboard([
+  const buttons = [
     [
       Markup.button.url(
         '📤 Поделиться ссылкой',
         `https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent('🌐 Попробуй VPNoodles — быстрый VPN прямо в Telegram!')}`,
       ),
     ],
-    [Markup.button.callback('◀️ Назад', 'menu')],
-  ]);
+  ];
+
+  // Show "Use bonus days" button only if user has available days
+  if (stats.availableBonusDays > 0) {
+    buttons.push([
+      Markup.button.callback(
+        `🎁 Использовать бонусные дни (${stats.availableBonusDays} дн.)`,
+        'use_bonus_days',
+      ),
+    ]);
+  }
+
+  buttons.push([Markup.button.callback('◀️ Назад', 'menu')]);
+
+  const keyboard = Markup.inlineKeyboard(buttons);
 
   if (ctx.callbackQuery) {
     // Check if the original message has a photo (QR code) - use editMessageCaption for photos
@@ -48,4 +63,56 @@ module.exports = async (ctx) => {
   } else {
     await ctx.replyWithMarkdown(text, keyboard);
   }
+};
+
+/**
+ * Handle "Use bonus days" button click
+ */
+module.exports.handleUseBonusDays = async (ctx) => {
+  await ctx.answerCbQuery();
+
+  const user = ctx.state.user;
+  const result = await UserService.useBonusDays(user.id);
+
+  if (!result.success) {
+    let errorText;
+    if (result.error === 'no_bonus_days') {
+      errorText = '❌ У вас нет доступных бонусных дней.';
+    } else if (result.error === 'no_active_subscription') {
+      errorText =
+        '❌ У вас нет активной подписки.\n\n' +
+        'Сначала оформите подписку, чтобы использовать бонусные дни.';
+    } else {
+      errorText = '⚠️ Произошла ошибка. Попробуйте позже.';
+    }
+
+    return ctx.editMessageText(errorText, {
+      parse_mode: 'Markdown',
+      ...Markup.inlineKeyboard([
+        [Markup.button.callback('💳 Оформить подписку', 'subscribe')],
+        [Markup.button.callback('◀️ Назад', 'referral')],
+      ]),
+    });
+  }
+
+  const expiresAt = new Date(result.newExpiresAt);
+  const expiresAtStr = expiresAt.toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
+  const successText =
+    `✅ *Бонусные дни применены!*\n\n` +
+    `📅 Продлено на: *${result.daysUsed}* дн.\n` +
+    `🗓 Новая дата окончания: *${expiresAtStr}*\n\n` +
+    `Спасибо, что приглашаете друзей! 🎉`;
+
+  return ctx.editMessageText(successText, {
+    parse_mode: 'Markdown',
+    ...Markup.inlineKeyboard([
+      [Markup.button.callback('📱 Мой VPN', 'my_vpn')],
+      [Markup.button.callback('◀️ Назад', 'referral')],
+    ]),
+  });
 };

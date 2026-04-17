@@ -83,33 +83,24 @@ const UserService = {
       return inserted[0];
     }
 
-    return db('referrals').where({ referrer_id: user.referred_by, referred_id: referredUserId }).first();
+    return db('referrals')
+      .where({ referrer_id: user.referred_by, referred_id: referredUserId })
+      .first();
   },
 
-  async _applyReferralBonusRecord(referral, bonusDays) {
-    const SubscriptionService = require('./SubscriptionService');
-    const extended = await SubscriptionService.extendByDays(referral.referrer_id, bonusDays);
-
-    if (!extended) {
-      logger.warn('Referral bonus deferred: referrer has no active subscription', {
-        referrerId: referral.referrer_id,
-        referredId: referral.referred_id,
-        bonusDays,
-      });
-      return false;
-    }
-
-    const updated = await db('referrals')
-      .where({ id: referral.id, bonus_applied: false })
-      .update({
-        bonus_days: bonusDays,
-        bonus_applied: true,
-        bonus_applied_at: db.fn.now(),
-      });
+  /**
+   * Credit referral bonus to referrer's balance (without auto-applying).
+   * Called when referred user makes first payment.
+   */
+  async _creditReferralBonus(referral, bonusDays) {
+    const updated = await db('referrals').where({ id: referral.id }).update({
+      bonus_days: bonusDays,
+      bonus_applied: false, // Not applied yet, waiting for manual use
+    });
 
     if (!updated) return false;
 
-    logger.info('Referral bonus applied', {
+    logger.info('Referral bonus credited to balance', {
       referrerId: referral.referrer_id,
       referredId: referral.referred_id,
       bonusDays,
@@ -147,54 +138,99 @@ const UserService = {
   },
 
   /**
-   * Apply referral bonus to referrer after referred user makes first payment.
+   * Credit referral bonus to referrer after referred user makes first payment.
+   * Bonus is added to balance and can be used manually later.
    */
-  async applyReferralBonus(referredUserId) {
+  async creditReferralBonus(referredUserId) {
     const config = require('../config');
     let referral = await db('referrals')
-      .where({ referred_id: referredUserId, bonus_applied: false })
+      .where({ referred_id: referredUserId, bonus_days: 0 })
       .first();
 
     // Backward compatibility: if referral row was never created, rebuild it from users.referred_by.
     if (!referral) {
       referral = await UserService._ensureReferralLink(referredUserId);
     }
-    if (!referral || referral.bonus_applied) return;
+    if (!referral || referral.bonus_days > 0) return; // Already credited
 
     try {
-      await UserService._applyReferralBonusRecord(referral, config.referral.bonusDays);
+      await UserService._creditReferralBonus(referral, config.referral.bonusDays);
     } catch (err) {
-      logger.error('Failed to apply referral bonus', { error: err.message });
+      logger.error('Failed to credit referral bonus', { error: err.message });
     }
   },
 
   /**
-   * Apply all pending referral bonuses for a referrer.
-   * Used when user purchases a subscription after bonuses were deferred.
+   * Get available bonus days for a user (not yet applied).
    */
-  async applyPendingReferralBonusesForReferrer(referrerUserId) {
-    const config = require('../config');
-    const pending = await db('referrals')
-      .where({ referrer_id: referrerUserId, bonus_applied: false })
-      .orderBy('created_at', 'asc');
+  async getAvailableBonusDays(userId) {
+    const result = await db('referrals')
+      .where({ referrer_id: userId, bonus_applied: false })
+      .where('bonus_days', '>', 0)
+      .sum('bonus_days as available')
+      .first();
 
-    if (!pending.length) return 0;
+    return parseInt(result?.available || 0, 10);
+  },
 
-    let applied = 0;
-    for (const referral of pending) {
-      try {
-        const ok = await UserService._applyReferralBonusRecord(referral, config.referral.bonusDays);
-        if (ok) applied += 1;
-      } catch (err) {
-        logger.error('Failed to apply pending referral bonus', {
-          referrerUserId,
-          referralId: referral.id,
-          error: err.message,
-        });
-      }
+  /**
+   * Use all available bonus days for a user.
+   * Returns { success, daysUsed, newExpiresAt } or { success: false, error }.
+   */
+  async useBonusDays(userId) {
+    const availableDays = await UserService.getAvailableBonusDays(userId);
+
+    if (availableDays <= 0) {
+      return { success: false, error: 'no_bonus_days' };
     }
 
-    return applied;
+    const SubscriptionService = require('./SubscriptionService');
+    const VpnService = require('./VpnService');
+    const Subscription = require('../models/Subscription');
+
+    const sub = await Subscription.findActiveByUserId(userId);
+    if (!sub) {
+      return { success: false, error: 'no_active_subscription' };
+    }
+
+    // Extend subscription in DB
+    const extended = await SubscriptionService.extendByDays(userId, availableDays);
+    if (!extended) {
+      return { success: false, error: 'extension_failed' };
+    }
+
+    // Extend in VPN panel (Remnawave)
+    try {
+      await VpnService.extendInPanel(userId, availableDays);
+    } catch (err) {
+      logger.error('Failed to extend VPN in panel for bonus', {
+        userId,
+        days: availableDays,
+        error: err.message,
+      });
+      // Continue - DB extension is more important
+    }
+
+    // Mark all bonus days as applied
+    await db('referrals')
+      .where({ referrer_id: userId, bonus_applied: false })
+      .where('bonus_days', '>', 0)
+      .update({
+        bonus_applied: true,
+        bonus_applied_at: db.fn.now(),
+      });
+
+    logger.info('Bonus days applied manually', {
+      userId,
+      daysUsed: availableDays,
+      newExpiresAt: extended.expires_at,
+    });
+
+    return {
+      success: true,
+      daysUsed: availableDays,
+      newExpiresAt: extended.expires_at,
+    };
   },
 
   async getReferralStats(userId) {
@@ -204,9 +240,12 @@ const UserService = {
       .sum('bonus_days as total_bonus_days')
       .first();
 
+    const availableDays = await UserService.getAvailableBonusDays(userId);
+
     return {
       total: parseInt(referrals.total || 0, 10),
       totalBonusDays: parseInt(referrals.total_bonus_days || 0, 10),
+      availableBonusDays: availableDays,
     };
   },
 };
