@@ -447,6 +447,11 @@ class RemnawaveAdapter {
       }
     }
 
+    // Sync description if provided
+    if (meta.description && String(meta.description).trim()) {
+      body.description = String(meta.description).trim().slice(0, 500);
+    }
+
     // PATCH /users with uuid and username in body (per Remnawave API docs)
     const raw = await this._request('PATCH', '/users', {
       uuid: this._extractUuid(user),
