@@ -25,15 +25,22 @@ const User = {
     const existing = await User.findByTelegramId(telegramId);
 
     if (existing) {
+      const updates = {
+        username: username || existing.username,
+        first_name: firstName || existing.first_name,
+        last_name: lastName || existing.last_name,
+        language_code: languageCode || existing.language_code,
+        updated_at: db.fn.now(),
+      };
+
+      // Allow attaching a referrer later, but only once and never self-referral.
+      if (!existing.referred_by && referredBy && Number(referredBy) !== Number(existing.id)) {
+        updates.referred_by = referredBy;
+      }
+
       const [updated] = await db(TABLE)
         .where({ telegram_id: telegramId })
-        .update({
-          username: username || existing.username,
-          first_name: firstName || existing.first_name,
-          last_name: lastName || existing.last_name,
-          language_code: languageCode || existing.language_code,
-          updated_at: db.fn.now(),
-        })
+        .update(updates)
         .returning('*');
       return updated;
     }
@@ -100,7 +107,20 @@ const User = {
     const referrer = await User.findByTelegramId(referrerTelegramId);
     if (!referrer) return;
     await User.update(id, { referred_by: referrer.id });
-    await User.incrementReferralCount(referrer.id);
+
+    const insertedRows = await db('referrals')
+      .insert({
+        referrer_id: referrer.id,
+        referred_id: id,
+        bonus_days: 0,
+      })
+      .onConflict(['referrer_id', 'referred_id'])
+      .ignore()
+      .returning('id');
+
+    if (Array.isArray(insertedRows) && insertedRows.length > 0) {
+      await User.incrementReferralCount(referrer.id);
+    }
   },
 };
 

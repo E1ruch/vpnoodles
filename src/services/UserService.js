@@ -60,6 +60,64 @@ const UserService = {
     }
   },
 
+  async _ensureReferralLink(referredUserId) {
+    const user = await User.findById(referredUserId);
+    if (!user?.referred_by) return null;
+
+    const existing = await db('referrals')
+      .where({ referrer_id: user.referred_by, referred_id: referredUserId })
+      .first();
+    if (existing) return existing;
+
+    const inserted = await db('referrals')
+      .insert({
+        referrer_id: user.referred_by,
+        referred_id: referredUserId,
+        bonus_days: 0,
+      })
+      .onConflict(['referrer_id', 'referred_id'])
+      .ignore()
+      .returning('*');
+
+    if (Array.isArray(inserted) && inserted.length > 0) {
+      return inserted[0];
+    }
+
+    return db('referrals').where({ referrer_id: user.referred_by, referred_id: referredUserId }).first();
+  },
+
+  async _applyReferralBonusRecord(referral, bonusDays) {
+    const SubscriptionService = require('./SubscriptionService');
+    const extended = await SubscriptionService.extendByDays(referral.referrer_id, bonusDays);
+
+    if (!extended) {
+      logger.warn('Referral bonus deferred: referrer has no active subscription', {
+        referrerId: referral.referrer_id,
+        referredId: referral.referred_id,
+        bonusDays,
+      });
+      return false;
+    }
+
+    const updated = await db('referrals')
+      .where({ id: referral.id, bonus_applied: false })
+      .update({
+        bonus_days: bonusDays,
+        bonus_applied: true,
+        bonus_applied_at: db.fn.now(),
+      });
+
+    if (!updated) return false;
+
+    logger.info('Referral bonus applied', {
+      referrerId: referral.referrer_id,
+      referredId: referral.referred_id,
+      bonusDays,
+    });
+
+    return true;
+  },
+
   async getProfile(userId) {
     const user = await User.findById(userId);
     if (!user) throw new Error('User not found');
@@ -93,31 +151,50 @@ const UserService = {
    */
   async applyReferralBonus(referredUserId) {
     const config = require('../config');
-    const SubscriptionService = require('./SubscriptionService');
-
-    const referral = await db('referrals')
+    let referral = await db('referrals')
       .where({ referred_id: referredUserId, bonus_applied: false })
       .first();
 
-    if (!referral) return;
+    // Backward compatibility: if referral row was never created, rebuild it from users.referred_by.
+    if (!referral) {
+      referral = await UserService._ensureReferralLink(referredUserId);
+    }
+    if (!referral || referral.bonus_applied) return;
 
     try {
-      // Extend referrer's active subscription
-      await SubscriptionService.extendByDays(referral.referrer_id, config.referral.bonusDays);
-
-      await db('referrals').where({ id: referral.id }).update({
-        bonus_days: config.referral.bonusDays,
-        bonus_applied: true,
-        bonus_applied_at: db.fn.now(),
-      });
-
-      logger.info('Referral bonus applied', {
-        referrerId: referral.referrer_id,
-        bonusDays: config.referral.bonusDays,
-      });
+      await UserService._applyReferralBonusRecord(referral, config.referral.bonusDays);
     } catch (err) {
       logger.error('Failed to apply referral bonus', { error: err.message });
     }
+  },
+
+  /**
+   * Apply all pending referral bonuses for a referrer.
+   * Used when user purchases a subscription after bonuses were deferred.
+   */
+  async applyPendingReferralBonusesForReferrer(referrerUserId) {
+    const config = require('../config');
+    const pending = await db('referrals')
+      .where({ referrer_id: referrerUserId, bonus_applied: false })
+      .orderBy('created_at', 'asc');
+
+    if (!pending.length) return 0;
+
+    let applied = 0;
+    for (const referral of pending) {
+      try {
+        const ok = await UserService._applyReferralBonusRecord(referral, config.referral.bonusDays);
+        if (ok) applied += 1;
+      } catch (err) {
+        logger.error('Failed to apply pending referral bonus', {
+          referrerUserId,
+          referralId: referral.id,
+          error: err.message,
+        });
+      }
+    }
+
+    return applied;
   },
 
   async getReferralStats(userId) {
