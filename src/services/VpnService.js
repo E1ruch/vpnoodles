@@ -28,10 +28,13 @@ function buildPanelMeta(plan, isTrial = false) {
     else if (prefix) meta.tag = prefix.replace(/-/g, '_').slice(0, 128);
   }
 
-  // Traffic limit
+  // Traffic limit: null = unlimited, so we pass 0 (Remnawave treats 0 as unlimited)
   if (plan?.traffic_bytes !== undefined && plan.traffic_bytes !== null) {
     const t = Number(plan.traffic_bytes);
     if (Number.isFinite(t) && t >= 0) meta.trafficLimitBytes = t;
+  } else {
+    // Unlimited plan — explicitly set to 0 (unlimited in Remnawave)
+    meta.trafficLimitBytes = 0;
   }
 
   // Device limit
@@ -83,6 +86,17 @@ const VpnService = {
     try {
       // Try to get existing panel user
       panelUser = await adapter.getUser(panelUsername);
+
+      // Reset traffic on renewal (so user starts fresh with new plan)
+      try {
+        await adapter.resetUserTraffic(panelUsername);
+        logger.info('Remnawave user traffic reset', { panelUsername });
+      } catch (resetErr) {
+        logger.warn('Failed to reset traffic (non-critical)', {
+          panelUsername,
+          error: resetErr.message,
+        });
+      }
 
       // User exists — extend expiry and sync meta (tag, traffic) in one PATCH
       panelUser = await adapter.extendUser(panelUsername, plan.duration_days, {

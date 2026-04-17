@@ -430,7 +430,7 @@ class RemnawaveAdapter {
       body.tag = String(meta.tag).trim().slice(0, 128);
     }
 
-    // Sync traffic limit if provided
+    // Sync traffic limit if provided (0 = unlimited)
     if (meta.trafficLimitBytes !== undefined) {
       const t = Number(meta.trafficLimitBytes);
       if (Number.isFinite(t) && t >= 0) {
