@@ -373,18 +373,22 @@ class RemnawaveAdapter {
   }
 
   async enableUser(username) {
-    // PATCH requires /users/{uuid}, not /users/by-username/{username}
+    // PATCH /users with uuid and username in body (per Remnawave API docs)
     const user = await this.getUser(username);
-    const raw = await this._request('PATCH', this._userPath(user), {
+    const raw = await this._request('PATCH', '/users', {
+      uuid: this._extractUuid(user),
+      username: user.username || username,
       status: 'ACTIVE',
     });
     return this._unwrap(raw);
   }
 
   async disableUser(username) {
-    // PATCH requires /users/{uuid}, not /users/by-username/{username}
+    // PATCH /users with uuid and username in body (per Remnawave API docs)
     const user = await this.getUser(username);
-    const raw = await this._request('PATCH', this._userPath(user), {
+    const raw = await this._request('PATCH', '/users', {
+      uuid: this._extractUuid(user),
+      username: user.username || username,
       status: 'DISABLED',
     });
     return this._unwrap(raw);
@@ -443,8 +447,12 @@ class RemnawaveAdapter {
       }
     }
 
-    // PATCH requires /users/{uuid}, not /users/by-username/{username}
-    const raw = await this._request('PATCH', this._userPath(user), body);
+    // PATCH /users with uuid and username in body (per Remnawave API docs)
+    const raw = await this._request('PATCH', '/users', {
+      uuid: this._extractUuid(user),
+      username: user.username || username,
+      ...body,
+    });
     return this._unwrap(raw);
   }
 
