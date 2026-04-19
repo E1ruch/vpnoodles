@@ -6,7 +6,7 @@
  *
  * @param {string} text - Button text
  * @param {string} callback_data - Callback data
- * @param {string} [style] - 'primary' | 'success' | 'danger'
+ * @param {string|null} [style] - 'primary' | 'success' | 'danger' | null
  * @param {string} [icon_custom_emoji_id] - Custom emoji ID (must be string!)
  * @returns {object} Button object for inline_keyboard
  */
@@ -21,10 +21,13 @@ function btn(text, callback_data, style, icon_custom_emoji_id) {
  * URL button builder
  * @param {string} text - Button text
  * @param {string} url - URL to open
+ * @param {string} [icon_custom_emoji_id] - Custom emoji ID (must be string!)
  * @returns {object} Button object for inline_keyboard
  */
-function btnUrl(text, url) {
-  return { text, url };
+function btnUrl(text, url, icon_custom_emoji_id) {
+  const button = { text, url };
+  if (icon_custom_emoji_id) button.icon_custom_emoji_id = icon_custom_emoji_id;
+  return button;
 }
 
 /**
