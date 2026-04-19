@@ -94,6 +94,33 @@ async function createBot() {
     const configId = ctx.match[1];
     return myVpnHandler.showQrImage(ctx, configId);
   });
+
+  // Device management callbacks
+  bot.action('my_devices', async (ctx) => {
+    await ctx.answerCbQuery();
+    return myVpnHandler.showDevices(ctx, 1);
+  });
+  bot.action(/^my_devices_page_(\d+)$/, async (ctx) => {
+    await ctx.answerCbQuery();
+    const page = parseInt(ctx.match[1], 10);
+    return myVpnHandler.showDevices(ctx, page);
+  });
+  bot.action(/^device_info_(.+)$/, async (ctx) => {
+    const token = ctx.match[1];
+    return myVpnHandler.showDeviceInfo(ctx, token);
+  });
+  bot.action(/^device_delete_confirm_(.+)$/, async (ctx) => {
+    const token = ctx.match[1];
+    return myVpnHandler.confirmDeleteDevice(ctx, token);
+  });
+  bot.action(/^device_delete_(.+)$/, async (ctx) => {
+    const token = ctx.match[1];
+    return myVpnHandler.deleteDevice(ctx, token);
+  });
+  bot.action('noop', async (ctx) => {
+    // No-op callback for pagination indicator
+    await ctx.answerCbQuery();
+  });
   bot.action('profile', profileHandler);
   bot.action('referral', referralHandler);
   bot.action('use_bonus_days', referralHandler.handleUseBonusDays);

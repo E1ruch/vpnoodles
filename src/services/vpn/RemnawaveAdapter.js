@@ -494,6 +494,102 @@ class RemnawaveAdapter {
     const raw = await this._request('GET', '/inbounds');
     return this._unwrap(raw);
   }
+
+  // ── HWID Device Management ─────────────────────────────────────────────────
+
+  /**
+   * Get list of HWID devices from the panel.
+   * API endpoint: GET /api/hwid/devices
+   *
+   * @param {object} opts - pagination options
+   * @param {number} opts.size - page size (default 20)
+   * @param {number} opts.start - start offset (default 1)
+   * @returns {Promise<object>} - { devices: [...], total: number } or similar
+   */
+  async getHwidDevices({ size = 20, start = 1 } = {}) {
+    const raw = await this._request('GET', '/hwid/devices', null, { size, start });
+    const data = this._unwrap(raw);
+
+    // Safe parsing: API may return different structures
+    // Try to extract devices array from various possible keys
+    let devices = [];
+    let total = 0;
+
+    if (Array.isArray(data)) {
+      // Direct array response
+      devices = data;
+      total = data.length;
+    } else if (data && typeof data === 'object') {
+      // Object with devices array
+      devices = data.devices || data.deviceList || data.items || data.list || [];
+      total = data.total || data.totalCount || data.count || devices.length;
+    }
+
+    // Normalize devices: ensure each device has consistent fields
+    devices = devices
+      .map((d) => {
+        if (!d || typeof d !== 'object') return null;
+        return {
+          hwid: d.hwid || d.deviceId || d.id || d.device_id || '',
+          userUuid: d.userUuid || d.user_uuid || d.uuid || d.userId || '',
+          deviceName: d.deviceName || d.device_name || d.name || d.hostname || '',
+          lastConnected: d.lastConnected || d.last_connected || d.lastSeen || d.last_seen || null,
+          createdAt: d.createdAt || d.created_at || null,
+          ip: d.ip || d.ipAddress || d.ip_address || '',
+        };
+      })
+      .filter(Boolean);
+
+    logger.debug('Remnawave getHwidDevices result', {
+      devicesCount: devices.length,
+      total,
+      size,
+      start,
+    });
+
+    return { devices, total };
+  }
+
+  /**
+   * Delete a specific HWID device.
+   * API endpoint: POST /api/hwid/devices/delete
+   *
+   * @param {object} opts - delete options
+   * @param {string} opts.userUuid - user UUID in panel
+   * @param {string} opts.hwid - device HWID to delete
+   * @returns {Promise<boolean>} - true if deleted successfully
+   */
+  async deleteHwidDevice({ userUuid, hwid }) {
+    if (!userUuid || !hwid) {
+      throw new Error('deleteHwidDevice requires userUuid and hwid');
+    }
+
+    logger.info('Deleting HWID device', { userUuid, hwid });
+
+    try {
+      const raw = await this._request('POST', '/hwid/devices/delete', {
+        userUuid,
+        hwid,
+      });
+
+      const data = this._unwrap(raw);
+
+      // API may return boolean or object with success field
+      const success = data === true || data?.success === true || data?.deleted === true;
+
+      logger.info('HWID device deleted', { userUuid, hwid, success });
+
+      return true;
+    } catch (err) {
+      logger.error('Failed to delete HWID device', {
+        userUuid,
+        hwid,
+        status: err.response?.status,
+        message: err.response?.data?.message || err.message,
+      });
+      throw err;
+    }
+  }
 }
 
 module.exports = new RemnawaveAdapter();

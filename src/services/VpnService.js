@@ -260,6 +260,220 @@ const VpnService = {
     if (!isPanelConfigured()) return null;
     return adapter.getSystemStats();
   },
+
+  /**
+   * Get devices for a user from the panel.
+   * Returns device list with limit/used/free counts.
+   *
+   * @param {number} userId - internal user ID
+   * @param {object} opts - pagination options
+   * @param {number} opts.page - page number (default 1)
+   * @param {number} opts.size - page size (default 10)
+   * @returns {Promise<object|null>} - { devices, limit, used, free, page, totalPages } or null
+   */
+  async getDevicesForUser(userId, { page = 1, size = 10 } = {}) {
+    if (!isPanelConfigured()) {
+      logger.warn('VPN panel not configured — cannot get devices', { userId });
+      return null;
+    }
+
+    // Get active VPN config for user
+    const configs = await VpnConfig.findActiveByUserId(userId);
+    if (!configs || configs.length === 0) {
+      logger.debug('No active VPN config for user', { userId });
+      return null;
+    }
+
+    const cfg = configs[0];
+    const panelUsername = cfg.panel_user_id;
+
+    if (!panelUsername) {
+      logger.warn('No panel_user_id in VPN config', { userId, configId: cfg.id });
+      return null;
+    }
+
+    try {
+      // Get panel user to extract UUID and device limit
+      const panelUser = await adapter.getUser(panelUsername);
+      const userUuid = adapter._extractUuid(panelUser);
+
+      if (!userUuid) {
+        logger.warn('Cannot extract UUID from panel user', { panelUsername });
+        return null;
+      }
+
+      // Get device limit from panel user
+      const limit = panelUser.hwidDeviceLimit ?? panelUser.hwid_device_limit ?? 0;
+
+      // Get all devices from panel
+      // Note: API may return all devices, we need to filter by userUuid
+      const { devices: allDevices, total } = await adapter.getHwidDevices({
+        size: 100, // Get enough to filter
+        start: 1,
+      });
+
+      // Filter devices belonging to this user
+      const userDevices = allDevices.filter((d) => d.userUuid === userUuid);
+
+      // Calculate pagination
+      const used = userDevices.length;
+      const free = Math.max(0, limit - used);
+      const totalPages = Math.ceil(userDevices.length / size);
+      const startIndex = (page - 1) * size;
+      const paginatedDevices = userDevices.slice(startIndex, startIndex + size);
+
+      logger.debug('Devices for user retrieved', {
+        userId,
+        userUuid,
+        totalDevices: userDevices.length,
+        limit,
+        page,
+        size,
+      });
+
+      return {
+        devices: paginatedDevices,
+        allDevices: userDevices, // For token mapping in handler
+        limit,
+        used,
+        free,
+        page,
+        totalPages,
+        userUuid,
+      };
+    } catch (err) {
+      logger.error('Failed to get devices for user', {
+        userId,
+        error: err.message,
+        status: err.response?.status,
+      });
+      return null;
+    }
+  },
+
+  /**
+   * Get a specific device by HWID for a user.
+   * Validates that the device belongs to the user.
+   *
+   * @param {number} userId - internal user ID
+   * @param {string} hwid - device HWID
+   * @returns {Promise<object|null>} - device object or null
+   */
+  async getDeviceByHwidForUser(userId, hwid) {
+    if (!isPanelConfigured()) return null;
+
+    const configs = await VpnConfig.findActiveByUserId(userId);
+    if (!configs || configs.length === 0) return null;
+
+    const cfg = configs[0];
+    const panelUsername = cfg.panel_user_id;
+
+    if (!panelUsername) return null;
+
+    try {
+      const panelUser = await adapter.getUser(panelUsername);
+      const userUuid = adapter._extractUuid(panelUser);
+
+      if (!userUuid) return null;
+
+      // Get all devices and find the specific one
+      const { devices: allDevices } = await adapter.getHwidDevices({ size: 100, start: 1 });
+
+      // Find device by HWID and validate ownership
+      const device = allDevices.find((d) => d.hwid === hwid && d.userUuid === userUuid);
+
+      if (!device) {
+        logger.warn('Device not found or does not belong to user', {
+          userId,
+          hwid,
+          userUuid,
+        });
+        return null;
+      }
+
+      return {
+        device,
+        userUuid,
+        limit: panelUser.hwidDeviceLimit ?? panelUser.hwid_device_limit ?? 0,
+      };
+    } catch (err) {
+      logger.error('Failed to get device by HWID', {
+        userId,
+        hwid,
+        error: err.message,
+      });
+      return null;
+    }
+  },
+
+  /**
+   * Delete a device for a user.
+   * Validates ownership before deletion.
+   *
+   * @param {number} userId - internal user ID
+   * @param {string} hwid - device HWID to delete
+   * @returns {Promise<object>} - { success: boolean, error?: string }
+   */
+  async deleteDeviceForUser(userId, hwid) {
+    if (!isPanelConfigured()) {
+      return { success: false, error: 'VPN панель не настроена' };
+    }
+
+    const configs = await VpnConfig.findActiveByUserId(userId);
+    if (!configs || configs.length === 0) {
+      return { success: false, error: 'Нет активной VPN конфигурации' };
+    }
+
+    const cfg = configs[0];
+    const panelUsername = cfg.panel_user_id;
+
+    if (!panelUsername) {
+      return { success: false, error: 'Нет связи с панелью VPN' };
+    }
+
+    try {
+      const panelUser = await adapter.getUser(panelUsername);
+      const userUuid = adapter._extractUuid(panelUser);
+
+      if (!userUuid) {
+        return { success: false, error: 'Не удалось получить UUID пользователя' };
+      }
+
+      // Verify device belongs to this user
+      const { devices: allDevices } = await adapter.getHwidDevices({ size: 100, start: 1 });
+      const device = allDevices.find((d) => d.hwid === hwid && d.userUuid === userUuid);
+
+      if (!device) {
+        logger.warn('Attempt to delete device not owned by user', {
+          userId,
+          hwid,
+          userUuid,
+        });
+        return { success: false, error: 'Устройство не найдено или не принадлежит вам' };
+      }
+
+      // Delete the device
+      await adapter.deleteHwidDevice({ userUuid, hwid });
+
+      logger.info('Device deleted for user', {
+        userId,
+        userUuid,
+        hwid,
+      });
+
+      return { success: true };
+    } catch (err) {
+      logger.error('Failed to delete device for user', {
+        userId,
+        hwid,
+        error: err.message,
+        status: err.response?.status,
+      });
+
+      const errorMsg = err.response?.data?.message || err.message || 'Неизвестная ошибка';
+      return { success: false, error: `Ошибка удаления: ${errorMsg}` };
+    }
+  },
 };
 
 module.exports = VpnService;
