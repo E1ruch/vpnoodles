@@ -370,16 +370,15 @@ module.exports.copyLink = async (ctx, configId) => {
   const link = String(cfg.config_link || '').trim();
 
   // Send link as a separate message so user can copy it
+  // Don't use Markdown for the link itself to avoid escaping issues
   const text =
-    `📋 *Ваша ссылка:*\n\n` +
-    `\`${escapeMarkdown(link)}\`\n\n` +
-    `💡 Скопируйте ссылку выше (долгий тап → Копировать)`;
+    `📋 Ваша ссылка:\n\n` + `${link}\n\n` + `💡 Скопируйте ссылку выше (долгий тап → Копировать)`;
 
   const keyboard = Markup.inlineKeyboard([
     [Markup.button.callback('◀️ Назад', `show_qr_${cfg.id}`)],
   ]);
 
-  return ctx.replyWithMarkdown(text, keyboard);
+  return ctx.reply(text, keyboard);
 };
 
 /**
