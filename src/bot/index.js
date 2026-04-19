@@ -44,6 +44,7 @@ const profileHandler = require('./handlers/profile');
 const referralHandler = require('./handlers/referral');
 const paymentHandler = require('./handlers/payment');
 const adminHandler = require('./handlers/admin');
+const helpHandler = require('./handlers/help');
 
 async function createBot() {
   const agent = createAgent();
@@ -331,6 +332,12 @@ async function createBot() {
       ]),
     });
   });
+
+  // Help section callbacks
+  bot.action('help', helpHandler);
+  bot.action('support_contact', helpHandler.handleSupportContact);
+  bot.action('support_group', helpHandler.handleSupportGroup);
+  bot.action('support_website', helpHandler.handleSupportWebsite);
 
   // ── Payments ──────────────────────────────────────────────────────────────
   bot.on('pre_checkout_query', paymentHandler.preCheckout);

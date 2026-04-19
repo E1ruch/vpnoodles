@@ -112,6 +112,11 @@ const config = {
   supportText:
     process.env.SUPPORT_TEXT || '📞 Для связи с поддержкой напишите @your_support_username',
 
+  support: {
+    groupLink: process.env.SUPPORT_GROUP_LINK || 'https://t.me/vpnoodles',
+    websiteLink: process.env.SUPPORT_WEBSITE_LINK || 'https://vpnoodles.ru',
+  },
+
   // ── Security ──────────────────────────────────────────────────────────────
   security: {
     jwtSecret: process.env.JWT_SECRET || 'change_me',
