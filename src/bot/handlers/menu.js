@@ -1,6 +1,6 @@
 'use strict';
 
-const { btn, keyboard } = require('../utils/btn');
+const { Markup } = require('telegraf');
 
 /**
  * Main menu handler
@@ -8,26 +8,26 @@ const { btn, keyboard } = require('../utils/btn');
 module.exports = async (ctx) => {
   if (ctx.callbackQuery) await ctx.answerCbQuery();
 
-  const inlineKeyboard = [
-    [btn('Моя конфигурация VPN', 'my_vpn', 'primary', '5967574255670399788')], //📱
-    [btn('Приобрести подписку', 'subscribe', 'primary', '5983399041197675256')], //💳
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('📱 Мой VPN', 'my_vpn')],
+    [Markup.button.callback('💳 Подписка', 'subscribe')],
     [
-      btn('Профиль', 'profile', '5920344347152224466'), //👤
-      btn('Реферал', 'referral', '5944970130554359187'), //👥
+      Markup.button.callback('👤 Профиль', 'profile'),
+      Markup.button.callback('👥 Реферал', 'referral'),
     ],
-    [btn('Помощь', 'help', '5988023995125993550')], //❓
-  ];
+    [Markup.button.callback('❓ Помощь', 'help')],
+  ]);
 
   const text = `🌐 *VPNoodles — Главное меню*\n\n` + `Выберите раздел:`;
 
   if (ctx.callbackQuery) {
     // Check if the original message has a photo (QR code) - use editMessageCaption for photos
     if (ctx.callbackQuery.message?.photo) {
-      await ctx.editMessageCaption(text, { parse_mode: 'Markdown', ...keyboard(inlineKeyboard) });
+      await ctx.editMessageCaption(text, { parse_mode: 'Markdown', ...keyboard });
     } else {
-      await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard(inlineKeyboard) });
+      await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
     }
   } else {
-    await ctx.replyWithMarkdown(text, keyboard(inlineKeyboard));
+    await ctx.replyWithMarkdown(text, keyboard);
   }
 };

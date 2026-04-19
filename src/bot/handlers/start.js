@@ -2,16 +2,19 @@
 
 const SubscriptionService = require('../../services/SubscriptionService');
 const User = require('../../models/User');
-const { btn, keyboard } = require('../utils/btn');
 
-/**
- * /start handler — welcome message + main menu
- */
+// Хелпер для создания callback-кнопки с опциональным стилем
+function btn(text, callback_data, style, icon_custom_emoji_id) {
+  const button = { text, callback_data };
+  if (style) button.style = style;
+  if (icon_custom_emoji_id) button.icon_custom_emoji_id = icon_custom_emoji_id;
+  return button;
+}
+
 module.exports = async (ctx) => {
   const user = ctx.state.user;
   const name = ctx.from.first_name || 'друг';
 
-  // Handle referral link: /start ref_<telegram_id>
   const startPayload = ctx.message?.text?.split(' ')[1];
   if (startPayload?.startsWith('ref_')) {
     const referrerId = parseInt(startPayload.replace('ref_', ''), 10);
@@ -40,34 +43,28 @@ module.exports = async (ctx) => {
         ? `💳 Выберите план и начните пользоваться VPN!`
         : `🎁 Попробуйте *бесплатно 7 дней* — без карты!`);
 
-  let inlineKeyboard;
+  let inline_keyboard;
+
   if (activeSub) {
-    // Active subscriber — main actions highlighted
-    inlineKeyboard = [
-      [btn('Моя конфигурация VPN', 'my_vpn', 'primary', '5967574255670399788')], //📱
-      [btn('Продлить подписку', 'subscribe', 'primary', '5897958754267174109')], //🔄
-      [
-        btn('Профиль', 'profile', '5920344347152224466'),
-        btn('Реферал', 'referral', '5944970130554359187'),
-      ], //👤 👥
+    inline_keyboard = [
+      [btn('📱 Моя конфигурация VPN', 'my_vpn', 'primary', '5967574255670399788')],
+      [btn('🔄 Продлить подписку', 'subscribe', 'success')],
+      [btn('👤 Профиль', 'profile'), btn('👥 Реферал', 'referral')],
     ];
   } else if (!trialUsed) {
-    // New user — trial is the main success action
-    inlineKeyboard = [
-      [btn('Попробовать бесплатно', 'trial', 'success', '5875180111744995604')], //🎁
-      [btn('Приобрести подписку', 'subscribe', 'primary', '5983399041197675256')], //💳
-      [btn('Профиль', 'profile', '5920344347152224466')], //👤
+    inline_keyboard = [
+      [btn('🎁 Попробовать бесплатно', 'trial', 'success')],
+      [btn('💳 Приобрести подписку', 'subscribe', 'primary')],
+      [btn('👤 Профиль', 'profile')],
     ];
   } else {
-    // Trial used — only paid options
-    inlineKeyboard = [
-      [btn('💳 Купить подписку', 'subscribe', 'primary', '5983399041197675256')], //💳
-      [
-        btn('Профиль', 'profile', '5920344347152224466'),
-        btn('Реферал', 'referral', '5944970130554359187'),
-      ],
+    inline_keyboard = [
+      [btn('💳 Купить подписку', 'subscribe', 'primary')],
+      [btn('👤 Профиль', 'profile'), btn('👥 Реферал', 'referral')],
     ];
   }
 
-  await ctx.replyWithMarkdown(welcomeText, keyboard(inlineKeyboard));
+  await ctx.replyWithMarkdown(welcomeText, {
+    reply_markup: { inline_keyboard },
+  });
 };
