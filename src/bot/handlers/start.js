@@ -47,20 +47,26 @@ module.exports = async (ctx) => {
 
   if (activeSub) {
     inline_keyboard = [
-      [btn('📱 Моя конфигурация VPN', 'my_vpn', 'primary', '5967574255670399788')],
-      [btn('🔄 Продлить подписку', 'subscribe', 'success')],
-      [btn('👤 Профиль', 'profile'), btn('👥 Реферал', 'referral')],
+      [btn('Моя конфигурация VPN', 'my_vpn', 'primary', '5967574255670399788')], //📱
+      [btn('Продлить подписку', 'subscribe', 'success', '5983399041197675256')], //🔄
+      [
+        btn('Профиль', 'profile', '5920344347152224466'),
+        btn('Реферал', 'referral', '5944970130554359187'),
+      ], //👤 //👥
     ];
   } else if (!trialUsed) {
     inline_keyboard = [
-      [btn('🎁 Попробовать бесплатно', 'trial', 'success')],
-      [btn('💳 Приобрести подписку', 'subscribe', 'primary')],
-      [btn('👤 Профиль', 'profile')],
+      [btn('Попробовать бесплатно', 'trial', 'success', '5875180111744995604')], //🎁
+      [btn('Приобрести подписку', 'subscribe', 'primary', '5983399041197675256')], //💳
+      [btn(' Профиль', 'profile', '5920344347152224466')], //👤
     ];
   } else {
     inline_keyboard = [
-      [btn('💳 Купить подписку', 'subscribe', 'primary')],
-      [btn('👤 Профиль', 'profile'), btn('👥 Реферал', 'referral')],
+      [btn('Купить подписку', 'subscribe', 'primary', '5983399041197675256')],
+      [
+        btn('👤 Профиль', 'profile', '5920344347152224466'),
+        btn('👥 Реферал', 'referral', '5944970130554359187'),
+      ],
     ];
   }
 
