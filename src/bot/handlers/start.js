@@ -1,8 +1,8 @@
-'use strict';
+﻿'use strict';
 
-const { Markup } = require('telegraf');
 const SubscriptionService = require('../../services/SubscriptionService');
 const User = require('../../models/User');
+const { btn, keyboard } = require('../utils/btn');
 
 /**
  * /start handler — welcome message + main menu
@@ -40,33 +40,34 @@ module.exports = async (ctx) => {
         ? `💳 Выберите план и начните пользоваться VPN!`
         : `🎁 Попробуйте *бесплатно 7 дней* — без карты!`);
 
-  let keyboard;
+  let inlineKeyboard;
   if (activeSub) {
-    keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('📱 Мой VPN', 'my_vpn')],
-      [Markup.button.callback('🔄 Продлить подписку', 'subscribe')],
+    // Active subscriber — main actions highlighted
+    inlineKeyboard = [
+      [btn('Моя конфигурация VPN', 'my_vpn', 'primary', '5967574255670399788')], //📱
+      [btn('Продлить подписку', 'subscribe', 'primary', '5897958754267174109')], //🔄
       [
-        Markup.button.callback('👤 Профиль', 'profile'),
-        Markup.button.callback('👥 Реферал', 'referral'),
-      ],
-    ]);
+        btn('Профиль', 'profile', '5920344347152224466'),
+        btn('Реферал', 'referral', '5944970130554359187'),
+      ], //👤 👥
+    ];
   } else if (!trialUsed) {
-    // New user — show trial button
-    keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('🎁 Попробовать бесплатно', 'trial')],
-      [Markup.button.callback('💳 Приобрести подписку', 'subscribe')],
-      [Markup.button.callback('👤 Профиль', 'profile')],
-    ]);
+    // New user — trial is the main success action
+    inlineKeyboard = [
+      [btn('Попробовать бесплатно', 'trial', 'success', '5875180111744995604')], //🎁
+      [btn('Приобрести подписку', 'subscribe', 'primary', '5983399041197675256')], //💳
+      [btn('Профиль', 'profile', '5920344347152224466')], //👤
+    ];
   } else {
-    // Trial already used — only paid options
-    keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('\uD83D\uDCB3 Купить подписку', 'subscribe')],
+    // Trial used — only paid options
+    inlineKeyboard = [
+      [btn('💳 Купить подписку', 'subscribe', 'primary', '5983399041197675256')], //💳
       [
-        Markup.button.callback('👤 Профиль', 'profile'),
-        Markup.button.callback('👥 Реферал', 'referral'),
+        btn('Профиль', 'profile', '5920344347152224466'),
+        btn('Реферал', 'referral', '5944970130554359187'),
       ],
-    ]);
+    ];
   }
 
-  await ctx.replyWithMarkdown(welcomeText, keyboard);
+  await ctx.replyWithMarkdown(welcomeText, keyboard(inlineKeyboard));
 };
