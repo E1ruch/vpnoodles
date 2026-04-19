@@ -94,7 +94,13 @@ function buildFullConfigText(cfg) {
  * Format device name for display
  */
 function formatDeviceName(device, index) {
-  const name = device.deviceName || device.hwid?.slice(0, 8) || `Устройство ${index + 1}`;
+  // Prefer deviceModel from API, fallback to other fields
+  const name =
+    device.deviceName ||
+    device.deviceModel ||
+    device.platform ||
+    device.hwid?.slice(0, 8) ||
+    `Устройство ${index + 1}`;
   return escapeMarkdown(name);
 }
 

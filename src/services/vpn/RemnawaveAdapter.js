@@ -498,29 +498,30 @@ class RemnawaveAdapter {
   // ── HWID Device Management ─────────────────────────────────────────────────
 
   /**
-   * Get list of HWID devices from the panel.
-   * API endpoint: GET /api/hwid/devices
+   * Get list of HWID devices for a specific user.
+   * API endpoint: GET /api/hwid/devices/{userUuid}
    *
-   * @param {object} opts - pagination options
-   * @param {number} opts.size - page size (default 20)
-   * @param {number} opts.start - start offset (default 1)
-   * @returns {Promise<object>} - { devices: [...], total: number } or similar
+   * @param {string} userUuid - user UUID in Remnawave panel
+   * @returns {Promise<object>} - { devices: [...], total: number }
    */
-  async getHwidDevices({ size = 20, start = 1 } = {}) {
-    const raw = await this._request('GET', '/hwid/devices', null, { size, start });
+  async getHwidDevices(userUuid) {
+    if (!userUuid) {
+      throw new Error('getHwidDevices requires userUuid');
+    }
+
+    const raw = await this._request('GET', `/hwid/devices/${userUuid}`);
     const data = this._unwrap(raw);
 
-    // Safe parsing: API may return different structures
-    // Try to extract devices array from various possible keys
+    // Safe parsing: API returns { total, devices: [...] }
     let devices = [];
     let total = 0;
 
     if (Array.isArray(data)) {
-      // Direct array response
+      // Direct array response (fallback)
       devices = data;
       total = data.length;
     } else if (data && typeof data === 'object') {
-      // Object with devices array
+      // Expected structure: { total, devices }
       devices = data.devices || data.deviceList || data.items || data.list || [];
       total = data.total || data.totalCount || data.count || devices.length;
     }
@@ -532,8 +533,12 @@ class RemnawaveAdapter {
         return {
           hwid: d.hwid || d.deviceId || d.id || d.device_id || '',
           userUuid: d.userUuid || d.user_uuid || d.uuid || d.userId || '',
-          deviceName: d.deviceName || d.device_name || d.name || d.hostname || '',
-          lastConnected: d.lastConnected || d.last_connected || d.lastSeen || d.last_seen || null,
+          deviceName: d.deviceModel || d.deviceName || d.device_name || d.name || d.hostname || '',
+          platform: d.platform || null,
+          osVersion: d.osVersion || d.os_version || null,
+          userAgent: d.userAgent || d.user_agent || null,
+          lastConnected:
+            d.updatedAt || d.lastConnected || d.last_connected || d.lastSeen || d.last_seen || null,
           createdAt: d.createdAt || d.created_at || null,
           ip: d.ip || d.ipAddress || d.ip_address || '',
         };
@@ -541,10 +546,9 @@ class RemnawaveAdapter {
       .filter(Boolean);
 
     logger.debug('Remnawave getHwidDevices result', {
+      userUuid,
       devicesCount: devices.length,
       total,
-      size,
-      start,
     });
 
     return { devices, total };

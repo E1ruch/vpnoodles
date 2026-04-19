@@ -305,27 +305,21 @@ const VpnService = {
       // Get device limit from panel user
       const limit = panelUser.hwidDeviceLimit ?? panelUser.hwid_device_limit ?? 0;
 
-      // Get all devices from panel
-      // Note: API may return all devices, we need to filter by userUuid
-      const { devices: allDevices, total } = await adapter.getHwidDevices({
-        size: 100, // Get enough to filter
-        start: 1,
-      });
-
-      // Filter devices belonging to this user
-      const userDevices = allDevices.filter((d) => d.userUuid === userUuid);
+      // Get devices for this specific user from panel
+      // API endpoint: GET /api/hwid/devices/{userUuid}
+      const { devices, total } = await adapter.getHwidDevices(userUuid);
 
       // Calculate pagination
-      const used = userDevices.length;
+      const used = devices.length;
       const free = Math.max(0, limit - used);
-      const totalPages = Math.ceil(userDevices.length / size);
+      const totalPages = Math.ceil(devices.length / size);
       const startIndex = (page - 1) * size;
-      const paginatedDevices = userDevices.slice(startIndex, startIndex + size);
+      const paginatedDevices = devices.slice(startIndex, startIndex + size);
 
       logger.debug('Devices for user retrieved', {
         userId,
         userUuid,
-        totalDevices: userDevices.length,
+        totalDevices: devices.length,
         limit,
         page,
         size,
@@ -333,7 +327,7 @@ const VpnService = {
 
       return {
         devices: paginatedDevices,
-        allDevices: userDevices, // For token mapping in handler
+        allDevices: devices, // For token mapping in handler
         limit,
         used,
         free,
@@ -376,14 +370,14 @@ const VpnService = {
 
       if (!userUuid) return null;
 
-      // Get all devices and find the specific one
-      const { devices: allDevices } = await adapter.getHwidDevices({ size: 100, start: 1 });
+      // Get devices for this user
+      const { devices } = await adapter.getHwidDevices(userUuid);
 
-      // Find device by HWID and validate ownership
-      const device = allDevices.find((d) => d.hwid === hwid && d.userUuid === userUuid);
+      // Find device by HWID
+      const device = devices.find((d) => d.hwid === hwid);
 
       if (!device) {
-        logger.warn('Device not found or does not belong to user', {
+        logger.warn('Device not found for user', {
           userId,
           hwid,
           userUuid,
@@ -440,8 +434,8 @@ const VpnService = {
       }
 
       // Verify device belongs to this user
-      const { devices: allDevices } = await adapter.getHwidDevices({ size: 100, start: 1 });
-      const device = allDevices.find((d) => d.hwid === hwid && d.userUuid === userUuid);
+      const { devices } = await adapter.getHwidDevices(userUuid);
+      const device = devices.find((d) => d.hwid === hwid);
 
       if (!device) {
         logger.warn('Attempt to delete device not owned by user', {
