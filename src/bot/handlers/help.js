@@ -22,14 +22,12 @@ module.exports = async (ctx) => {
     `👤 *Ваша информация:*\n` +
     `🆔 ID: \`${user.telegram_id}\`\n` +
     `📛 Имя: ${user.first_name || '—'} ${user.last_name || ''}\n` +
-    `📦 Подписка: ${subStatus}\n\n` +
-    `📞 *Поддержка:*\n` +
-    `@vladiuslaviosa | @Doofoos`;
+    `📦 Подписка: ${subStatus}\n\n`;
 
   const inline_keyboard = [
     [btn('Обратиться в поддержку', 'support_contact', 'primary', '5967574255670399788')],
-    [btn('Перейти в группу', 'support_group', null, '5875465628285931233')],
-    [btn('Перейти на сайт', 'support_website', null, '5994323406479167187')],
+    [btn('Перейти в группу', 'support_group', 'primary', '5875465628285931233')],
+    [btn('Перейти на сайт', 'support_website', 'primary', '5994323406479167187')],
     [btn('Назад', 'menu', null, '5875082500023258804')],
   ];
 
