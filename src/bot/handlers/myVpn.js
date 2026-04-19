@@ -353,9 +353,11 @@ module.exports.showQrImage = async (ctx, configId) => {
 };
 
 /**
- * Copy link handler - shows link in alert
+ * Copy link handler - sends link as a separate message for easy copying
  */
 module.exports.copyLink = async (ctx, configId) => {
+  if (ctx.callbackQuery) await ctx.answerCbQuery('📋 Ссылка отправлена ниже');
+
   const user = ctx.state.user;
 
   const configs = await VpnService.getConfigsForUser(user.id);
@@ -367,8 +369,17 @@ module.exports.copyLink = async (ctx, configId) => {
 
   const link = String(cfg.config_link || '').trim();
 
-  // Show link in alert so user can copy it
-  return ctx.answerCbQuery(`Ссылка: ${link}`, { show_alert: true });
+  // Send link as a separate message so user can copy it
+  const text =
+    `📋 *Ваша ссылка:*\n\n` +
+    `\`${escapeMarkdown(link)}\`\n\n` +
+    `💡 Скопируйте ссылку выше (долгий тап → Копировать)`;
+
+  const keyboard = Markup.inlineKeyboard([
+    [Markup.button.callback('◀️ Назад', `show_qr_${cfg.id}`)],
+  ]);
+
+  return ctx.replyWithMarkdown(text, keyboard);
 };
 
 /**
