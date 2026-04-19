@@ -43,7 +43,12 @@ module.exports = async (ctx) => {
   // Show "Use bonus days" button only if user has available days
   if (stats.availableBonusDays > 0) {
     buttons.push([
-      btn('Использовать бонусные дни', 'use_bonus_days', 'success', '5875180111744995604'), //🎁
+      btn(
+        `Использовать бонусные дни (${stats.availableBonusDays} дн.)`,
+        'use_bonus_days',
+        'primary',
+        '5875180111744995604',
+      ),
     ]);
   }
 
@@ -94,7 +99,7 @@ module.exports.handleUseBonusDays = async (ctx) => {
       parse_mode: 'Markdown',
       reply_markup: {
         inline_keyboard: [
-          [btn('Оформить подписку', 'subscribe', 'primary', '5983399041197675256')], //💳
+          [btn('Оформить подписку', 'subscribe', 'success', '5983399041197675256')], //💳
           [btn('Назад', 'referral', null, '5875082500023258804')], //◀️
         ],
       },
