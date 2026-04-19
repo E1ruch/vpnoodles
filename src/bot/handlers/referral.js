@@ -1,8 +1,8 @@
 'use strict';
 
-const { Markup } = require('telegraf');
 const config = require('../../config');
 const UserService = require('../../services/UserService');
+const { btn, btnUrl } = require('../utils/btn');
 
 /**
  * Referral handler — shows referral link and stats
@@ -32,9 +32,10 @@ module.exports = async (ctx) => {
 
   const buttons = [
     [
-      Markup.button.url(
-        '📤 Поделиться ссылкой',
+      btnUrl(
+        'Поделиться ссылкой',
         `https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent('🌐 Попробуй VPNoodles — быстрый VPN прямо в Telegram!')}`,
+        '5771868281212245617', //📤
       ),
     ],
   ];
@@ -42,26 +43,29 @@ module.exports = async (ctx) => {
   // Show "Use bonus days" button only if user has available days
   if (stats.availableBonusDays > 0) {
     buttons.push([
-      Markup.button.callback(
-        `🎁 Использовать бонусные дни (${stats.availableBonusDays} дн.)`,
-        'use_bonus_days',
-      ),
+      btn('Использовать бонусные дни', 'use_bonus_days', 'success', '5875180111744995604'), //🎁
     ]);
   }
 
-  buttons.push([Markup.button.callback('◀️ Назад', 'menu')]);
-
-  const keyboard = Markup.inlineKeyboard(buttons);
+  buttons.push([btn('Назад', 'menu', null, '5875082500023258804')]); //◀️
 
   if (ctx.callbackQuery) {
     // Check if the original message has a photo (QR code) - use editMessageCaption for photos
     if (ctx.callbackQuery.message?.photo) {
-      await ctx.editMessageCaption(text, { parse_mode: 'Markdown', ...keyboard });
+      await ctx.editMessageCaption(text, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: buttons },
+      });
     } else {
-      await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+      await ctx.editMessageText(text, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard: buttons },
+      });
     }
   } else {
-    await ctx.replyWithMarkdown(text, keyboard);
+    await ctx.replyWithMarkdown(text, {
+      reply_markup: { inline_keyboard: buttons },
+    });
   }
 };
 
@@ -88,10 +92,12 @@ module.exports.handleUseBonusDays = async (ctx) => {
 
     return ctx.editMessageText(errorText, {
       parse_mode: 'Markdown',
-      ...Markup.inlineKeyboard([
-        [Markup.button.callback('💳 Оформить подписку', 'subscribe')],
-        [Markup.button.callback('◀️ Назад', 'referral')],
-      ]),
+      reply_markup: {
+        inline_keyboard: [
+          [btn('Оформить подписку', 'subscribe', 'primary', '5983399041197675256')], //💳
+          [btn('Назад', 'referral', null, '5875082500023258804')], //◀️
+        ],
+      },
     });
   }
 
@@ -110,9 +116,11 @@ module.exports.handleUseBonusDays = async (ctx) => {
 
   return ctx.editMessageText(successText, {
     parse_mode: 'Markdown',
-    ...Markup.inlineKeyboard([
-      [Markup.button.callback('📱 Мой VPN', 'my_vpn')],
-      [Markup.button.callback('◀️ Назад', 'referral')],
-    ]),
+    reply_markup: {
+      inline_keyboard: [
+        [btn('Моя конфигурация VPN', 'my_vpn', 'primary', '5967574255670399788')], //📱
+        [btn('Назад', 'referral', null, '5875082500023258804')], //◀️
+      ],
+    },
   });
 };

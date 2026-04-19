@@ -10,7 +10,7 @@ module.exports = async (ctx) => {
 
   const inline_keyboard = [
     [btn('Моя конфигурация VPN', 'my_vpn', 'primary', '5967574255670399788')], //📱
-    [btn('Приобрести подписку', 'subscribe', 'primary', '5983399041197675256')], //💳
+    [btn('Приобрести подписку', 'subscribe', 'success', '5983399041197675256')], //💳
     [
       btn('Профиль', 'profile', null, '5920344347152224466'), //👤
       btn('Реферал', 'referral', null, '5944970130554359187'), //👥

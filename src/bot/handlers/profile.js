@@ -1,8 +1,8 @@
 'use strict';
 
-const { Markup } = require('telegraf');
 const SubscriptionService = require('../../services/SubscriptionService');
 const PaymentService = require('../../services/PaymentService');
+const { btn } = require('../utils/btn');
 
 /**
  * Profile handler — shows user info, subscription status, payment history
@@ -29,20 +29,28 @@ module.exports = async (ctx) => {
     `💳 Оплат: ${paidCount}\n` +
     `👥 Рефералов: ${user.referral_count || 0}`;
 
-  const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback('💳 Управление подпиской', 'subscribe')],
-    [Markup.button.callback('👥 Реферальная программа', 'referral')],
-    [Markup.button.callback('◀️ Меню', 'menu')],
-  ]);
+  const inline_keyboard = [
+    [btn('Управление подпиской', 'subscribe', 'primary', '5983399041197675256')], //💳
+    [btn('Реферальная программа', 'referral', null, '5944970130554359187')], //👥
+    [btn('Меню', 'menu', null, '5875082500023258804')], //◀️
+  ];
 
   if (ctx.callbackQuery) {
     // Check if the original message has a photo (QR code) - use editMessageCaption for photos
     if (ctx.callbackQuery.message?.photo) {
-      await ctx.editMessageCaption(text, { parse_mode: 'Markdown', ...keyboard });
+      await ctx.editMessageCaption(text, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard },
+      });
     } else {
-      await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+      await ctx.editMessageText(text, {
+        parse_mode: 'Markdown',
+        reply_markup: { inline_keyboard },
+      });
     }
   } else {
-    await ctx.replyWithMarkdown(text, keyboard);
+    await ctx.replyWithMarkdown(text, {
+      reply_markup: { inline_keyboard },
+    });
   }
 };
