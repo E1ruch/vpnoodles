@@ -76,11 +76,11 @@ module.exports = async (ctx) => {
     `👥 Рефералов: ${user.referral_count || 0}`;
 
   const inline_keyboard = [
-    [btn('💳 История платежей', 'profile_payments')],
-    [btn('📱 Управление устройствами', 'my_devices')],
+    [btn('История платежей', 'profile_payments', null, '5967390100357648692')],
+    [btn('Управление устройствами', 'my_devices', null, '5845947563601041174')],
     [btn('Продлить подписку', 'subscribe', 'primary', '5983399041197675256')],
-    [btn('👥 Реферальная программа', 'referral')],
-    [btn('◀️ Меню', 'menu')],
+    [btn('Реферальная программа', 'referral', null, '5944970130554359187')],
+    [btn('Меню', 'menu', null, '5875082500023258804')],
   ];
 
   if (ctx.callbackQuery) {
@@ -120,7 +120,7 @@ module.exports.showPayments = async (ctx) => {
       `📭 История платежей пуста.\n\n` +
       `Оформите подписку, чтобы начать пользоваться VPN.`;
 
-    const inline_keyboard = [[btn('◀️ Назад в профиль', 'profile')]];
+    const inline_keyboard = [[btn('Назад в профиль', 'profile', null, '5875082500023258804')]];
 
     if (ctx.callbackQuery?.message?.photo) {
       return ctx.editMessageCaption(text, {
@@ -146,7 +146,7 @@ module.exports.showPayments = async (ctx) => {
     text += `   ${status} • _${escapeMarkdown(provider)}_\n\n`;
   });
 
-  const inline_keyboard = [[btn('◀️ Назад в профиль', 'profile')]];
+  const inline_keyboard = [[btn('Назад в профиль', 'profile', null, '5875082500023258804')]];
 
   if (ctx.callbackQuery?.message?.photo) {
     return ctx.editMessageCaption(text, {

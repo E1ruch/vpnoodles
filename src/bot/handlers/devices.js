@@ -1,8 +1,8 @@
 'use strict';
 
-const { Markup } = require('telegraf');
 const SubscriptionService = require('../../services/SubscriptionService');
 const VpnService = require('../../services/VpnService');
+const { btn } = require('../utils/btn');
 
 /**
  * Escape special characters for Telegram Markdown
@@ -76,11 +76,11 @@ module.exports.showDevices = async (ctx, page = 1) => {
   const activeSub = await SubscriptionService.getActive(user.id);
   if (!activeSub) {
     const text = '❌ У вас нет активной подписки.';
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('💳 Купить подписку', 'subscribe')],
-      [Markup.button.callback('◀️ Назад', 'profile')],
-    ]);
-    return ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    const inline_keyboard = [
+      [btn('Купить подписку', 'subscribe', 'success', '5983399041197675256')], //💳
+      [btn('Назад', 'profile', null, '5875082500023258804')], //◀️
+    ];
+    return ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard } });
   }
 
   const result = await VpnService.getDevicesForUser(user.id, { page, size: 5 });
@@ -90,11 +90,11 @@ module.exports.showDevices = async (ctx, page = 1) => {
       `📱 *Мои устройства*\n\n` +
       `⚠️ Не удалось получить информацию об устройствах.\n` +
       `Возможно, VPN панель недоступна.`;
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('🔄 Повторить', 'my_devices')],
-      [Markup.button.callback('◀️ Назад', 'profile')],
-    ]);
-    return ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    const inline_keyboard = [
+      [btn('Повторить', 'my_devices', 'primary', '5846024087033353251')], //🔄
+      [btn('Назад', 'profile', null, '5875082500023258804')], //◀️
+    ];
+    return ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard } });
   }
 
   const { devices, allDevices, limit, used, free, totalPages } = result;
@@ -135,31 +135,32 @@ module.exports.showDevices = async (ctx, page = 1) => {
       const name =
         device.deviceName || device.hwid?.slice(0, 12) || `Устройство ${globalIndex + 1}`;
       keyboardRows.push([
-        Markup.button.callback(`📱 ${name.slice(0, 20)}`, `device_info_${token}`),
-      ]);
+        btn(name.slice(0, 20), `device_info_${token}`, null, '5967574255670399788'),
+      ]); //📱
     }
   });
 
   // Pagination buttons
   const paginationRow = [];
   if (page > 1) {
-    paginationRow.push(Markup.button.callback('◀️', `my_devices_page_${page - 1}`));
+    paginationRow.push(btn('◀️', `my_devices_page_${page - 1}`));
   }
   if (totalPages > 1) {
-    paginationRow.push(Markup.button.callback(`${page}/${totalPages}`, 'noop'));
+    paginationRow.push(btn(`${page}/${totalPages}`, 'noop'));
   }
   if (page < totalPages) {
-    paginationRow.push(Markup.button.callback('▶️', `my_devices_page_${page + 1}`));
+    paginationRow.push(btn('▶️', `my_devices_page_${page + 1}`));
   }
   if (paginationRow.length > 0) {
     keyboardRows.push(paginationRow);
   }
 
-  keyboardRows.push([Markup.button.callback('◀️ Назад', 'profile')]);
+  keyboardRows.push([btn('Назад', 'profile', null, '5875082500023258804')]); //◀️
 
-  const keyboard = Markup.inlineKeyboard(keyboardRows);
-
-  return ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+  return ctx.editMessageText(text, {
+    parse_mode: 'Markdown',
+    reply_markup: { inline_keyboard: keyboardRows },
+  });
 };
 
 /**
@@ -181,8 +182,8 @@ module.exports.showDeviceInfo = async (ctx, token) => {
 
   if (!result) {
     const text = '⚠️ Устройство не найдено или не принадлежит вам.';
-    const keyboard = Markup.inlineKeyboard([[Markup.button.callback('◀️ К списку', 'my_devices')]]);
-    return ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    const inline_keyboard = [[btn('К списку', 'my_devices', null, '5960551395730919906')]]; //◀️
+    return ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard } });
   }
 
   const { device } = result;
@@ -201,13 +202,13 @@ module.exports.showDeviceInfo = async (ctx, token) => {
     `\n` +
     `⚠️ Удаление устройства отключит его от VPN.`;
 
-  const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback('🗑 Удалить устройство', `device_delete_confirm_${token}`)],
-    [Markup.button.callback('◀️ К списку', 'my_devices')],
-    [Markup.button.callback('🏠 В меню', 'menu')],
-  ]);
+  const inline_keyboard = [
+    [btn('Удалить устройство', `device_delete_confirm_${token}`, 'danger', '5879937509579820068')], //🗑
+    [btn('К списку', 'my_devices', null, '5960551395730919906')], //◀️
+    [btn('В меню', 'menu', null, '5875082500023258804')], //🏠
+  ];
 
-  return ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+  return ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard } });
 };
 
 /**
@@ -229,12 +230,12 @@ module.exports.confirmDeleteDevice = async (ctx, token) => {
     `⚠️ Вы уверены, что хотите удалить это устройство?\n\n` +
     `После удаления устройство будет отключено от VPN и потребуется повторное подключение.`;
 
-  const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback('✅ Да, удалить', `device_delete_${token}`)],
-    [Markup.button.callback('❌ Отмена', `device_info_${token}`)],
-  ]);
+  const inline_keyboard = [
+    [btn('Да, удалить', `device_delete_${token}`, 'danger', '5879937509579820068')], //🗑
+    [btn('Отмена', `device_info_${token}`, null, '5875082500023258804')], //❌
+  ];
 
-  return ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+  return ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard } });
 };
 
 /**
@@ -256,8 +257,8 @@ module.exports.deleteDevice = async (ctx, token) => {
 
   if (!result.success) {
     const text = `❌ *Ошибка*\n\n${result.error || 'Не удалось удалить устройство.'}`;
-    const keyboard = Markup.inlineKeyboard([[Markup.button.callback('◀️ К списку', 'my_devices')]]);
-    return ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+    const inline_keyboard = [[btn('К списку', 'my_devices', null, '5960551395730919906')]]; //◀️
+    return ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard } });
   }
 
   // Clear device tokens from session to force refresh
@@ -270,10 +271,10 @@ module.exports.deleteDevice = async (ctx, token) => {
     `Устройство успешно отключено от VPN.\n` +
     `Список устройств обновлён.`;
 
-  const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback('📱 К списку устройств', 'my_devices')],
-    [Markup.button.callback('◀️ В профиль', 'profile')],
-  ]);
+  const inline_keyboard = [
+    [btn('К списку устройств', 'my_devices', 'primary', '5960551395730919906')], //📱
+    [btn('В профиль', 'profile', null, '5920344347152224466')], //👤
+  ];
 
-  return ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+  return ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard } });
 };
