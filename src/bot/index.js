@@ -41,6 +41,7 @@ const menuHandler = require('./handlers/menu');
 const subscribeHandler = require('./handlers/subscribe');
 const myVpnHandler = require('./handlers/myVpn');
 const profileHandler = require('./handlers/profile');
+const devicesHandler = require('./handlers/devices');
 const referralHandler = require('./handlers/referral');
 const paymentHandler = require('./handlers/payment');
 const adminHandler = require('./handlers/admin');
@@ -99,30 +100,31 @@ async function createBot() {
   // Device management callbacks
   bot.action('my_devices', async (ctx) => {
     await ctx.answerCbQuery();
-    return myVpnHandler.showDevices(ctx, 1);
+    return devicesHandler.showDevices(ctx, 1);
   });
   bot.action(/^my_devices_page_(\d+)$/, async (ctx) => {
     await ctx.answerCbQuery();
     const page = parseInt(ctx.match[1], 10);
-    return myVpnHandler.showDevices(ctx, page);
+    return devicesHandler.showDevices(ctx, page);
   });
   bot.action(/^device_info_(.+)$/, async (ctx) => {
     const token = ctx.match[1];
-    return myVpnHandler.showDeviceInfo(ctx, token);
+    return devicesHandler.showDeviceInfo(ctx, token);
   });
   bot.action(/^device_delete_confirm_(.+)$/, async (ctx) => {
     const token = ctx.match[1];
-    return myVpnHandler.confirmDeleteDevice(ctx, token);
+    return devicesHandler.confirmDeleteDevice(ctx, token);
   });
   bot.action(/^device_delete_(.+)$/, async (ctx) => {
     const token = ctx.match[1];
-    return myVpnHandler.deleteDevice(ctx, token);
+    return devicesHandler.deleteDevice(ctx, token);
   });
   bot.action('noop', async (ctx) => {
     // No-op callback for pagination indicator
     await ctx.answerCbQuery();
   });
   bot.action('profile', profileHandler);
+  bot.action('profile_payments', profileHandler.showPayments);
   bot.action('referral', referralHandler);
   bot.action('use_bonus_days', referralHandler.handleUseBonusDays);
 
