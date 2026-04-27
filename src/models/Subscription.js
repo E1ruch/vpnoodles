@@ -83,6 +83,15 @@ const Subscription = {
       .update({ traffic_used_bytes: bytesUsed, updated_at: db.fn.now() });
   },
 
+  /** Generic update method for subscription fields */
+  async update(id, fields) {
+    const [row] = await db(TABLE)
+      .where({ id })
+      .update({ ...fields, updated_at: db.fn.now() })
+      .returning('*');
+    return row;
+  },
+
   async markNotified(id) {
     return db(TABLE).where({ id }).update({ notified_expiry: true, updated_at: db.fn.now() });
   },
@@ -126,7 +135,8 @@ const Subscription = {
       .join('plans', 'subscriptions.plan_id', 'plans.id')
       .where('subscriptions.status', 'expired')
       .where('plans.is_trial', true)
-      .where('subscriptions.notified_trial_expired', false);
+      .where('subscriptions.notified_trial_expired', false)
+      .select('subscriptions.*');
   },
 
   /** Find trial subscriptions (for checking if user has trial) */
