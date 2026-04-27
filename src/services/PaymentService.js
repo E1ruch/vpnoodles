@@ -33,18 +33,42 @@ const PaymentService = {
    */
   async handleSuccess({ paymentId, providerPaymentId }) {
     const payment = await Payment.findById(paymentId);
-    if (!payment) throw new Error(`Payment ${paymentId} not found`);
-    if (payment.status === 'paid') {
-      logger.warn('Payment already processed', { paymentId });
+    if (!payment) {
+      logger.error('Payment not found', { paymentId, providerPaymentId });
+      throw new Error(`Payment ${paymentId} not found`);
+    }
+
+    // 1. Atomically mark paid - prevents duplicate processing
+    const updatedPayment = await Payment.markPaidIfPending(paymentId, providerPaymentId);
+    if (!updatedPayment) {
+      logger.warn('Payment already processed, skipping', {
+        paymentId,
+        providerPaymentId,
+        currentStatus: payment.status,
+        source: 'handleSuccess',
+      });
       return null;
     }
 
-    // 1. Mark paid
-    await Payment.markPaid(paymentId, providerPaymentId);
+    logger.info('Payment marked as paid', {
+      paymentId,
+      userId: payment.user_id,
+      providerPaymentId,
+      provider: payment.provider,
+      amount: payment.amount,
+      currency: payment.currency,
+    });
 
     // 2. Activate subscription
     const plan = await Plan.findById(payment.plan_id);
     const subscription = await SubscriptionService.activate(payment.user_id, plan.id);
+
+    logger.info('Subscription activated', {
+      subscriptionId: subscription.id,
+      userId: payment.user_id,
+      planId: plan.id,
+      expiresAt: subscription.expires_at,
+    });
 
     // 3. Provision VPN (errors are logged inside provision; does not throw)
     await VpnService.provision(payment.user_id, subscription.id, plan);
@@ -57,9 +81,10 @@ const PaymentService = {
       paymentId,
       userId: payment.user_id,
       subscriptionId: subscription.id,
+      planName: plan.name,
     });
 
-    return { payment, subscription };
+    return { payment: updatedPayment, subscription };
   },
 
   // ── Telegram Stars ─────────────────────────────────────────────────────────
@@ -237,16 +262,18 @@ const PaymentService = {
       returnUrl,
     });
 
-    // Save YooKassa payment ID to payment record
+    // Get confirmation URL from YooKassa response
+    const confirmationUrl = YooKassaService.getConfirmationUrl(yooPayment);
+
+    // Save YooKassa payment ID and confirmation URL to payment record
     await Payment.update(payment.id, {
       provider_payment_id: yooPayment.id,
       metadata: JSON.stringify({
         yookassaPaymentId: yooPayment.id,
         status: yooPayment.status,
+        confirmationUrl,
       }),
     });
-
-    const confirmationUrl = YooKassaService.getConfirmationUrl(yooPayment);
 
     logger.info('YooKassa payment created', {
       paymentId: payment.id,

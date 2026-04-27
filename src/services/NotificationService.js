@@ -46,6 +46,8 @@ const NotificationService = {
       key,
     );
 
+    logger.logNotification('trial_expired', { userId, key, created }, created);
+
     if (!created) {
       logger.debug('Trial expired notification already sent', { userId, subscriptionId });
       return false;
@@ -57,24 +59,28 @@ const NotificationService = {
       return false;
     }
 
+    const text =
+      '⏰ *Бесплатный период закончился*\n\n' +
+      'Ваш пробный доступ к VPN Лапша истёк, но мы сохранили ваши настройки.\n\n' +
+      'Оформите подписку — и VPN снова заработает за пару секунд. Все ключи и устройства останутся на месте.';
+
     try {
-      await bot.telegram.sendMessage(
-        user.telegram_id,
-        '⏰ *Бесплатный период закончился*\n\n' +
-          'Ваш пробный доступ к VPN Лапша истёк, но мы сохранили ваши настройки.\n\n' +
-          'Оформите подписку — и VPN снова заработает за пару секунд. Все ключи и устройства останутся на месте.',
-        {
-          parse_mode: 'Markdown',
-          reply_markup: {
-            inline_keyboard: [[{ text: '💳 Оформить подписку', callback_data: 'subscribe' }]],
-          },
+      await bot.telegram.sendMessage(user.telegram_id, text, {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [[{ text: '💳 Оформить подписку', callback_data: 'subscribe' }]],
         },
-      );
+      });
 
       // Mark subscription as notified
       await Subscription.update(subscriptionId, { notified_trial_expired: true });
 
-      logger.info('Trial expired notification sent', { userId, subscriptionId });
+      logger.logMessage(
+        'trial_expired',
+        { userId, telegramId: user.telegram_id, subscriptionId },
+        { text, buttons: ['subscribe'], chatId: user.telegram_id },
+      );
+
       return true;
     } catch (err) {
       logger.error('Failed to send trial expired notification', {
@@ -254,7 +260,7 @@ const NotificationService = {
           parse_mode: 'Markdown',
           reply_markup: {
             inline_keyboard: [
-              [{ text: '📱 Управление устройствами', callback_data: 'devices' }],
+              [{ text: '📱 Управление устройствами', callback_data: 'my_devices' }],
               [{ text: '💳 Оформить подписку', callback_data: 'subscribe' }],
             ],
           },

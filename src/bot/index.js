@@ -153,27 +153,104 @@ async function createBot() {
   // CryptoPay — manual check payment status
   bot.action(/^check_crypto_(\d+)$/, async (ctx) => {
     await ctx.answerCbQuery('Проверяем оплату...');
+    const Payment = require('../models/Payment');
     const PaymentService = require('../services/PaymentService');
-    try {
-      const count = await PaymentService.processCryptoPayPaid();
-      if (count > 0) {
-        const text = '✅ Оплата подтверждена! Нажмите "Мой VPN" для получения конфигурации.';
-        const keyboard = require('telegraf').Markup.inlineKeyboard([
-          [require('telegraf').Markup.button.callback('📱 Мой VPN', 'my_vpn')],
-        ]);
+    const CryptoPayService = require('../services/CryptoPayService');
+    const { Markup } = require('telegraf');
 
-        // Check if the original message has a photo (QR code) - use editMessageCaption for photos
+    try {
+      // Find pending CryptoPay payment for THIS user
+      const pendingPayment = await Payment.findPendingByUserIdAndProvider(
+        ctx.state.user.id,
+        'cryptopay',
+      );
+
+      if (!pendingPayment) {
+        await ctx.answerCbQuery('❌ Платёж не найден. Возможно, он был отменён.', {
+          show_alert: true,
+        });
+        return;
+      }
+
+      // Get invoice ID from metadata
+      const metadata =
+        typeof pendingPayment.metadata === 'string'
+          ? JSON.parse(pendingPayment.metadata)
+          : pendingPayment.metadata || {};
+      const invoiceId = pendingPayment.provider_payment_id || metadata.invoiceId;
+
+      if (!invoiceId) {
+        await ctx.answerCbQuery('⚠️ Ошибка: нет ID инвойса. Обратитесь в поддержку.', {
+          show_alert: true,
+        });
+        return;
+      }
+
+      // Check this specific invoice status
+      const result = await CryptoPayService.getInvoices('paid', [parseInt(invoiceId, 10)]);
+      const paidInvoices = result.items || [];
+
+      if (paidInvoices.length > 0) {
+        // Process this specific payment
+        await PaymentService.handleSuccess({
+          paymentId: pendingPayment.id,
+          providerPaymentId: String(invoiceId),
+        });
+
+        const text = '✅ Оплата подтверждена! Нажмите "Мой VPN" для получения конфигурации.';
+        const keyboard = Markup.inlineKeyboard([[Markup.button.callback('📱 Мой VPN', 'my_vpn')]]);
+
         if (ctx.callbackQuery?.message?.photo) {
           await ctx.editMessageCaption(text, { parse_mode: 'Markdown', ...keyboard });
         } else {
           await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
         }
-      } else {
-        await ctx.answerCbQuery('⏳ Оплата ещё не поступила. Попробуйте через минуту.', {
-          show_alert: true,
+
+        logger.info('CryptoPay payment confirmed via manual check', {
+          paymentId: pendingPayment.id,
+          userId: ctx.state.user.id,
+          invoiceId,
         });
+      } else {
+        // Check if invoice is still active
+        const activeResult = await CryptoPayService.getInvoices('active', [
+          parseInt(invoiceId, 10),
+        ]);
+        const activeInvoices = activeResult.items || [];
+
+        if (activeInvoices.length > 0) {
+          const invoice = activeInvoices[0];
+          const invoiceUrl = invoice.bot_invoice_url || invoice.pay_url;
+          const asset = metadata.asset || pendingPayment.currency;
+          const displayAmount = metadata.displayAmount || invoice.amount;
+
+          const text =
+            `⏳ *Платёж ещё не завершён*\n\n` + `Нажмите кнопку ниже для перехода к оплате:`;
+          const keyboard = Markup.inlineKeyboard([
+            [Markup.button.url(`💎 Оплатить ${displayAmount} ${asset}`, invoiceUrl)],
+            [
+              Markup.button.callback(
+                '🔄 Проверить оплату',
+                `check_crypto_${pendingPayment.plan_id}`,
+              ),
+            ],
+            [Markup.button.callback('◀️ Отмена', 'subscribe')],
+          ]);
+
+          if (ctx.callbackQuery?.message?.photo) {
+            await ctx.editMessageCaption(text, { parse_mode: 'Markdown', ...keyboard });
+          } else {
+            await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+          }
+        } else {
+          await ctx.answerCbQuery(
+            '⏳ Оплата ещё не поступила. Если вы оплатили, подождите минуту.',
+            { show_alert: true },
+          );
+        }
       }
     } catch (err) {
+      logger.error('CryptoPay check error', { error: err.message, userId: ctx.state.user.id });
       await ctx.answerCbQuery('⚠️ Ошибка проверки. Попробуйте позже.', { show_alert: true });
     }
   });

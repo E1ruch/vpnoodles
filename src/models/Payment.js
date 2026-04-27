@@ -46,8 +46,20 @@ const Payment = {
   async markPaid(id, providerPaymentId = null) {
     const fields = { status: 'paid', updated_at: db.fn.now() };
     if (providerPaymentId) fields.provider_payment_id = providerPaymentId;
-    const [row] = await db(TABLE).where({ id }).update(fields).returning('*');
+    // Atomic update: only mark as paid if currently pending
+    const [row] = await db(TABLE).where({ id, status: 'pending' }).update(fields).returning('*');
     return row;
+  },
+
+  /**
+   * Atomically mark payment as paid. Returns null if already processed.
+   * Prevents duplicate processing from webhook + polling.
+   */
+  async markPaidIfPending(id, providerPaymentId = null) {
+    const fields = { status: 'paid', updated_at: db.fn.now() };
+    if (providerPaymentId) fields.provider_payment_id = providerPaymentId;
+    const [row] = await db(TABLE).where({ id, status: 'pending' }).update(fields).returning('*');
+    return row || null;
   },
 
   async markFailed(id) {
@@ -138,6 +150,17 @@ const Payment = {
   async findPendingByUserId(userId) {
     return db(TABLE)
       .where({ user_id: userId, status: 'pending' })
+      .orderBy('created_at', 'desc')
+      .first();
+  },
+
+  /**
+   * Find pending payment for a user by provider.
+   * Returns the most recent pending payment for this provider or null.
+   */
+  async findPendingByUserIdAndProvider(userId, provider) {
+    return db(TABLE)
+      .where({ user_id: userId, provider, status: 'pending' })
       .orderBy('created_at', 'desc')
       .first();
   },

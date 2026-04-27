@@ -411,9 +411,40 @@ async function handleYooKassaCheck(ctx, user, planId) {
   await ctx.answerCbQuery('Проверяем оплату...');
 
   try {
-    const count = await PaymentService.processYooKassaPaid();
+    // Find pending YooKassa payment for THIS user (not just any payment)
+    const pendingPayment = await Payment.findPendingByUserIdAndProvider(user.id, 'yookassa');
 
-    if (count > 0) {
+    if (!pendingPayment) {
+      await ctx.answerCbQuery('❌ Платёж не найден. Возможно, он был отменён.', {
+        show_alert: true,
+      });
+      return;
+    }
+
+    // Check this specific payment status
+    const YooKassaService = require('../../services/YooKassaService');
+    const metadata =
+      typeof pendingPayment.metadata === 'string'
+        ? JSON.parse(pendingPayment.metadata)
+        : pendingPayment.metadata || {};
+    const yookassaPaymentId = pendingPayment.provider_payment_id || metadata.yookassaPaymentId;
+
+    if (!yookassaPaymentId) {
+      await ctx.answerCbQuery('⚠️ Ошибка: нет ID платежа. Обратитесь в поддержку.', {
+        show_alert: true,
+      });
+      return;
+    }
+
+    const yooPayment = await YooKassaService.getPayment(yookassaPaymentId);
+
+    if (yooPayment.status === 'succeeded') {
+      // Process this specific payment
+      await PaymentService.handleSuccess({
+        paymentId: pendingPayment.id,
+        providerPaymentId: yookassaPaymentId,
+      });
+
       const text = '✅ Оплата подтверждена! Нажмите "Мой VPN" для получения конфигурации.';
       const keyboard = Markup.inlineKeyboard([[Markup.button.callback('📱 Мой VPN', 'my_vpn')]]);
 
@@ -422,8 +453,40 @@ async function handleYooKassaCheck(ctx, user, planId) {
       } else {
         await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
       }
+
+      logger.info('YooKassa payment confirmed via manual check', {
+        paymentId: pendingPayment.id,
+        userId: user.id,
+        yookassaPaymentId,
+      });
+    } else if (yooPayment.status === 'canceled') {
+      await PaymentService.handleFailed(pendingPayment.id);
+      await ctx.answerCbQuery('❌ Платёж был отменён.', { show_alert: true });
+    } else if (yooPayment.status === 'pending') {
+      // Still pending - check if confirmation URL is available
+      const confirmationUrl = YooKassaService.getConfirmationUrl(yooPayment);
+
+      if (confirmationUrl) {
+        const text =
+          `⏳ *Платёж ещё не завершён*\n\n` + `Нажмите кнопку ниже для перехода к оплате:`;
+        const keyboard = Markup.inlineKeyboard([
+          [Markup.button.url('💳 Перейти к оплате', confirmationUrl)],
+          [Markup.button.callback('🔄 Проверить оплату', `check_yookassa_${planId}`)],
+          [Markup.button.callback('◀️ Отмена', 'subscribe')],
+        ]);
+
+        if (ctx.callbackQuery?.message?.photo) {
+          await ctx.editMessageCaption(text, { parse_mode: 'Markdown', ...keyboard });
+        } else {
+          await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
+        }
+      } else {
+        await ctx.answerCbQuery('⏳ Оплата ещё не поступила. Попробуйте через минуту.', {
+          show_alert: true,
+        });
+      }
     } else {
-      await ctx.answerCbQuery('⏳ Оплата ещё не поступила. Попробуйте через минуту.', {
+      await ctx.answerCbQuery(`⏳ Статус платежа: ${yooPayment.status}. Попробуйте позже.`, {
         show_alert: true,
       });
     }
@@ -493,20 +556,29 @@ async function showPendingInvoice(ctx, payment) {
   } else if (payment.provider === 'yookassa') {
     const metadata =
       typeof payment.metadata === 'string' ? JSON.parse(payment.metadata) : payment.metadata || {};
-    const yookassaPaymentId = payment.provider_payment_id || metadata.yookassaPaymentId;
+    const confirmationUrl = metadata.confirmationUrl;
 
-    // We need to get confirmation URL from YooKassa or show check button
     statusText =
       `⏳ *У вас есть неоплаченный счёт*\n\n` +
       `📋 План: *${plan.name}*\n` +
       `💰 Сумма: *${(payment.amount / 100).toFixed(0)} ₽*\n` +
       `⏰ Осталось: *${remainingMin} мин*\n\n` +
-      `Нажмите "Проверить оплату" если вы уже оплатили.`;
-    buttons = [
-      [Markup.button.callback('🔄 Проверить оплату', `check_yookassa_${plan.id}`)],
-      [Markup.button.callback('❌ Отказаться', `cancel_payment_${payment.id}`)],
-      [Markup.button.callback('◀️ Меню', 'menu')],
-    ];
+      (confirmationUrl
+        ? `Нажмите "Перейти к оплате" для завершения платежа.`
+        : `Нажмите "Проверить оплату" если вы уже оплатили.`);
+
+    buttons = [];
+    if (confirmationUrl) {
+      buttons.push([
+        Markup.button.url(
+          `💳 Перейти к оплате (${(payment.amount / 100).toFixed(0)} ₽)`,
+          confirmationUrl,
+        ),
+      ]);
+    }
+    buttons.push([Markup.button.callback('🔄 Проверить оплату', `check_yookassa_${plan.id}`)]);
+    buttons.push([Markup.button.callback('❌ Отказаться', `cancel_payment_${payment.id}`)]);
+    buttons.push([Markup.button.callback('◀️ Меню', 'menu')]);
   } else {
     // Unknown provider - cancel and show plans
     await Payment.cancelIfPending(payment.id);
