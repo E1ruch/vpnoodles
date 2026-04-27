@@ -4,6 +4,7 @@ const cron = require('node-cron');
 const SubscriptionService = require('../services/SubscriptionService');
 const PaymentService = require('../services/PaymentService');
 const PaymentReminderService = require('../services/PaymentReminderService');
+const NotificationService = require('../services/NotificationService');
 const config = require('../config');
 const logger = require('../utils/logger');
 
@@ -21,6 +22,18 @@ function registerCronJobs(bot) {
       }
     } catch (err) {
       logger.error('Cron: processExpired failed', { error: err.message });
+    }
+  });
+
+  // ── Send trial expired notifications — every 15 minutes ───────────────────
+  cron.schedule('*/15 * * * *', async () => {
+    try {
+      const count = await SubscriptionService.processTrialExpiredNotifications(bot);
+      if (count > 0) {
+        logger.info(`Cron: sent ${count} trial expired notification(s)`);
+      }
+    } catch (err) {
+      logger.error('Cron: processTrialExpiredNotifications failed', { error: err.message });
     }
   });
 
@@ -86,6 +99,24 @@ function registerCronJobs(bot) {
     }
   });
   logger.info('Payment reminders cron registered (every minute)');
+
+  // ── Check traffic and device limits — every hour ──────────────────────────────
+  cron.schedule('0 * * * *', async () => {
+    try {
+      const LimitCheckService = require('../services/LimitCheckService');
+      const result = await LimitCheckService.runAllChecks(bot);
+      if (result.traffic80 > 0 || result.traffic100 > 0 || result.devices > 0) {
+        logger.info('Cron: limit checks processed', {
+          traffic80: result.traffic80,
+          traffic100: result.traffic100,
+          devices: result.devices,
+        });
+      }
+    } catch (err) {
+      logger.error('Cron: limit checks failed', { error: err.message });
+    }
+  });
+  logger.info('Limit checks cron registered (every hour)');
 
   logger.info('Cron jobs registered');
 }

@@ -106,6 +106,8 @@ const config = {
   // ── Notifications ─────────────────────────────────────────────────────────
   notifications: {
     expiryDaysBefore: parseInt(process.env.NOTIFY_EXPIRY_DAYS_BEFORE, 10) || 3,
+    trafficThreshold80: parseInt(process.env.NOTIFY_TRAFFIC_THRESHOLD_80, 10) || 80,
+    deviceLimitEnabled: process.env.NOTIFY_DEVICE_LIMIT_ENABLED !== 'false',
   },
 
   // ── Support ──────────────────────────────────────────────────────────────

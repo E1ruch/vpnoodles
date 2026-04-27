@@ -87,6 +87,23 @@ const Subscription = {
     return db(TABLE).where({ id }).update({ notified_expiry: true, updated_at: db.fn.now() });
   },
 
+  async markTrialExpiredNotified(id) {
+    return db(TABLE)
+      .where({ id })
+      .update({ notified_trial_expired: true, updated_at: db.fn.now() });
+  },
+
+  async resetNotificationFlags(id) {
+    return db(TABLE).where({ id }).update({
+      notified_expiry: false,
+      notified_trial_expired: false,
+      notified_traffic_80: false,
+      notified_traffic_100: false,
+      notified_device_limit: false,
+      updated_at: db.fn.now(),
+    });
+  },
+
   // ── Queries for cron jobs ──────────────────────────────────────────────────
 
   /** Find subscriptions expiring within N days (for notifications) */
@@ -101,6 +118,26 @@ const Subscription = {
   /** Find all expired but still marked active */
   async findExpiredActive() {
     return db(TABLE).where({ status: 'active' }).where('expires_at', '<', db.fn.now());
+  },
+
+  /** Find expired trial subscriptions that need notification */
+  async findExpiredTrialNotNotified() {
+    return db(TABLE)
+      .join('plans', 'subscriptions.plan_id', 'plans.id')
+      .where('subscriptions.status', 'expired')
+      .where('plans.is_trial', true)
+      .where('subscriptions.notified_trial_expired', false);
+  },
+
+  /** Find trial subscriptions (for checking if user has trial) */
+  async findTrialByUserId(userId) {
+    return db(TABLE)
+      .join('plans', 'subscriptions.plan_id', 'plans.id')
+      .where('subscriptions.user_id', userId)
+      .where('plans.is_trial', true)
+      .select('subscriptions.*')
+      .orderBy('subscriptions.created_at', 'desc')
+      .first();
   },
 
   // ── Stats ──────────────────────────────────────────────────────────────────

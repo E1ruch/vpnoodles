@@ -4,6 +4,7 @@ const Subscription = require('../models/Subscription');
 const Plan = require('../models/Plan');
 const User = require('../models/User');
 const VpnConfig = require('../models/VpnConfig');
+const NotificationService = require('./NotificationService');
 const logger = require('../utils/logger');
 
 const SubscriptionService = {
@@ -34,16 +35,27 @@ const SubscriptionService = {
   /**
    * Activate a paid subscription for a user.
    * If user already has an active sub — extends it.
+   * Re-enables VPN configs if they were disabled.
    */
   async activate(userId, planId) {
     const plan = await Plan.findById(planId);
     if (!plan) throw new Error(`Plan ${planId} not found`);
 
     const existing = await Subscription.findActiveByUserId(userId);
+    const VpnService = require('./VpnService');
 
     if (existing) {
       // Extend existing subscription
       const extended = await Subscription.extend(existing.id, plan.duration_days);
+
+      // Reset notification flags for new period
+      await Subscription.resetNotificationFlags(existing.id);
+
+      // Re-enable VPN if it was disabled
+      await VpnService.enableForUser(userId).catch((err) =>
+        logger.error('Failed to re-enable VPN on extend', { error: err.message }),
+      );
+
       logger.info('Subscription extended', {
         userId,
         subscriptionId: extended.id,
@@ -52,12 +64,25 @@ const SubscriptionService = {
       return extended;
     }
 
+    // Check for expired subscription to re-enable VPN
+    const expiredSub = await Subscription.findAllByUserId(userId);
+    const lastSub = expiredSub[0];
+    if (lastSub) {
+      // Reset notification flags
+      await Subscription.resetNotificationFlags(lastSub.id);
+    }
+
     const sub = await Subscription.create({
       userId,
       planId: plan.id,
       durationDays: plan.duration_days,
       trafficLimitBytes: plan.traffic_bytes,
     });
+
+    // Re-enable VPN configs if they exist
+    await VpnService.enableForUser(userId).catch((err) =>
+      logger.error('Failed to re-enable VPN on new subscription', { error: err.message }),
+    );
 
     logger.info('Subscription created', { userId, subscriptionId: sub.id, planSlug: plan.slug });
     return sub;
@@ -124,6 +149,7 @@ const SubscriptionService = {
 
   /**
    * Called by cron: send expiry notifications.
+   * Uses NotificationService for idempotency.
    */
   async processExpiryNotifications(bot) {
     const config = require('../config');
@@ -131,24 +157,9 @@ const SubscriptionService = {
 
     for (const sub of subs) {
       try {
-        const user = await User.findById(sub.user_id);
-        if (!user) continue;
-
         const daysLeft = Math.ceil((new Date(sub.expires_at) - new Date()) / (1000 * 60 * 60 * 24));
 
-        await bot.telegram.sendMessage(
-          user.telegram_id,
-          `⚠️ Ваша подписка истекает через *${daysLeft} дн.*\n\nПродлите её, чтобы не потерять доступ к VPN.`,
-          {
-            parse_mode: 'Markdown',
-            reply_markup: {
-              inline_keyboard: [[{ text: '🔄 Продлить подписку', callback_data: 'subscribe' }]],
-            },
-          },
-        );
-
-        await Subscription.markNotified(sub.id);
-        logger.info('Expiry notification sent', { userId: sub.user_id, subscriptionId: sub.id });
+        await NotificationService.sendExpiringNotification(bot, sub, daysLeft);
       } catch (err) {
         logger.error('Failed to send expiry notification', {
           subscriptionId: sub.id,
@@ -156,6 +167,36 @@ const SubscriptionService = {
         });
       }
     }
+  },
+
+  /**
+   * Called by cron: send trial expired notifications.
+   * Finds all expired trial subscriptions that haven't been notified.
+   */
+  async processTrialExpiredNotifications(bot) {
+    const expiredTrials = await Subscription.findExpiredTrialNotNotified();
+
+    let sent = 0;
+    for (const sub of expiredTrials) {
+      try {
+        const notified = await NotificationService.sendTrialExpiredNotification(
+          bot,
+          sub.user_id,
+          sub.id,
+        );
+        if (notified) sent++;
+      } catch (err) {
+        logger.error('Failed to send trial expired notification', {
+          subscriptionId: sub.id,
+          error: err.message,
+        });
+      }
+    }
+
+    if (sent > 0) {
+      logger.info('Trial expired notifications sent', { count: sent });
+    }
+    return sent;
   },
 };
 
