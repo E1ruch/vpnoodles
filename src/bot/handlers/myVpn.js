@@ -6,16 +6,19 @@ const SubscriptionService = require('../../services/SubscriptionService');
 const Plan = require('../../models/Plan');
 const logger = require('../../utils/logger');
 
-function protocolLabel(protocol) {
-  const value = String(protocol || '').toLowerCase();
-  if (value === 'subscription') return 'VLESS (подписка)';
-  if (value === 'vless') return 'VLESS';
-  if (value === 'vmess') return 'VMess';
-  if (value === 'trojan') return 'Trojan';
-  return String(protocol || 'Неизвестно');
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Escape special characters for Telegram MarkdownV2
+ */
+function escapeMarkdown(text) {
+  return String(text || '').replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
 }
 
-function formatTrafficUsed(bytes) {
+/**
+ * Format bytes to human-readable
+ */
+function formatTraffic(bytes) {
   if (bytes == null || !Number.isFinite(Number(bytes))) return '';
   const b = Number(bytes);
   if (b < 1024) return `${Math.round(b)} Б`;
@@ -27,91 +30,113 @@ function formatTrafficUsed(bytes) {
   return `${gb < 10 ? gb.toFixed(2) : gb.toFixed(1)} ГБ`;
 }
 
-function serverLabel(cfg) {
-  const fromNode = String(cfg.server_label || '').trim();
-  if (fromNode) return fromNode;
+/**
+ * Format days with correct Russian pluralization
+ */
+function formatDaysLeft(days) {
+  if (days === 1) return '1 день';
+  if (days >= 2 && days <= 4) return `${days} дня`;
+  return `${days} дней`;
+}
 
-  const fromPanelTag = String(cfg.panel_snapshot?.tag || '').trim();
-  if (fromPanelTag) return fromPanelTag;
-
-  const tag = String(cfg.server_tag || '').trim();
-  if (tag && tag.toLowerCase() !== 'default') {
-    return tag;
-  }
-
-  // For subscription links show host instead of technical "default".
-  try {
-    const link = String(cfg.config_link || '').trim();
-    if (link.startsWith('http://') || link.startsWith('https://')) {
+/**
+ * Get server display name (user-friendly)
+ */
+function getServerName(cfg) {
+  // Try to get hostname from subscription URL
+  const link = String(cfg.config_link || '').trim();
+  if (link.startsWith('http://') || link.startsWith('https://')) {
+    try {
       const url = new URL(link);
       if (url.hostname) return url.hostname;
-    }
-  } catch {
-    // Ignore URL parse issues and fallback to generic name.
-  }
-
-  return 'Основной сервер';
-}
-
-/**
- * Escape special characters for Telegram Markdown
- */
-function escapeMarkdown(text) {
-  return String(text || '').replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
-}
-
-/**
- * Build full config text with link (for connection display)
- */
-function buildFullConfigText(cfg) {
-  const snap = cfg.panel_snapshot;
-  let extraInfo = '';
-
-  if (snap) {
-    if (snap.hwidDeviceLimit != null && snap.hwidDeviceLimit !== '') {
-      extraInfo += `\n📱 Устройств: до ${snap.hwidDeviceLimit}`;
-    }
-    if (snap.usedTrafficBytes != null) {
-      const u = formatTrafficUsed(snap.usedTrafficBytes);
-      if (u) {
-        extraInfo += `\n📊 Трафик: ${u}`;
-        if (snap.trafficLimitBytes != null && snap.trafficLimitBytes > 0) {
-          extraInfo += ` из ${formatTrafficUsed(snap.trafficLimitBytes)}`;
-        }
-      }
+    } catch {
+      // Ignore
     }
   }
-
-  // Don't show full link in text - it contains special chars that break Markdown
-  // User will get the link via button
-  return (
-    `🖥 *${escapeMarkdown(serverLabel(cfg))}*\n` +
-    `📡 Протокол: ${protocolLabel(cfg.protocol)}${extraInfo}\n\n` +
-    `💡 Нажмите кнопку ниже для получения ссылки`
-  );
+  // Fallback to tag or generic name
+  const tag = String(cfg.server_tag || '').trim();
+  if (tag && tag.toLowerCase() !== 'default') return tag;
+  return 'VPN';
 }
 
 /**
- * My VPN handler — shows subscription info with connection button
+ * Build keyboard for "no subscription" state
+ */
+function buildNoSubKeyboard(hasTrial) {
+  const buttons = [];
+  buttons.push([Markup.button.callback('💳 Оформить подписку', 'subscribe')]);
+  if (hasTrial) {
+    buttons.push([Markup.button.callback('🎁 Попробовать бесплатно', 'trial')]);
+  }
+  buttons.push([Markup.button.callback('◀️ Меню', 'menu')]);
+  return Markup.inlineKeyboard(buttons);
+}
+
+/**
+ * Build keyboard for "config creating" state
+ */
+function buildCreatingKeyboard() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('🔄 Обновить', 'my_vpn')],
+    [Markup.button.callback('◀️ Меню', 'menu')],
+  ]);
+}
+
+/**
+ * Build keyboard for "config ready" state
+ */
+function buildReadyKeyboard(configId) {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback('🚀 Подключить VPN', `show_qr_${configId}`)],
+    [Markup.button.callback('📋 Копировать ссылку', `copy_link_${configId}`)],
+    [Markup.button.callback('💳 Продлить подписку', 'subscribe')],
+    [Markup.button.callback('◀️ Меню', 'menu')],
+  ]);
+}
+
+/**
+ * Build keyboard for config details view
+ */
+function buildConfigDetailsKeyboard(configId, hasQr, isSubscription) {
+  const buttons = [];
+
+  // Primary action: connect
+  if (isSubscription) {
+    buttons.push([Markup.button.callback('🚀 Подключить VPN', `show_qr_${configId}`)]);
+  }
+
+  // Secondary: copy link
+  buttons.push([Markup.button.callback('📋 Копировать ссылку', `copy_link_${configId}`)]);
+
+  // Navigation
+  buttons.push([Markup.button.callback('◀️ К подписке', 'my_vpn')]);
+
+  return Markup.inlineKeyboard(buttons);
+}
+
+// ── Main Handler ──────────────────────────────────────────────────────────────
+
+/**
+ * My VPN handler — shows subscription status and connection options
  */
 module.exports = async (ctx) => {
   if (ctx.callbackQuery) await ctx.answerCbQuery();
 
   const user = ctx.state.user;
-
   const activeSub = await SubscriptionService.getActive(user.id);
 
+  // ── State 1: No active subscription ────────────────────────────────────────
   if (!activeSub) {
     const text =
       `📱 *Мой VPN*\n\n` +
-      `❌ У вас нет активной подписки.\n\n` +
-      `Оформите подписку, чтобы получить доступ к VPN.`;
+      `❌ У вас нет активной подписки\n\n` +
+      `Для доступа к VPN оформите подписку\\.`;
 
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('💳 Купить подписку', 'subscribe')],
-      [Markup.button.callback('🎁 Попробовать бесплатно', 'trial')],
-      [Markup.button.callback('◀️ Назад', 'menu')],
-    ]);
+    // Check if user has trial available
+    const User = require('../../models/User');
+    const hasTrial = !(await User.hasUsedTrial(user.id));
+
+    const keyboard = buildNoSubKeyboard(hasTrial);
 
     if (ctx.callbackQuery) {
       if (ctx.callbackQuery.message?.photo) {
@@ -122,11 +147,12 @@ module.exports = async (ctx) => {
     return ctx.replyWithMarkdown(text, keyboard);
   }
 
+  // ── Get configs with self-heal ──────────────────────────────────────────────
   let configs = await VpnService.getConfigsForUser(user.id);
 
   // Self-heal: if user has active subscription but no VPN config, try to provision
   if (!configs.length && activeSub) {
-    logger.info('Self-heal: attempting VPN provision for user with active sub', {
+    logger.info('Self-heal: attempting VPN provision', {
       userId: user.id,
       subscriptionId: activeSub.id,
     });
@@ -150,16 +176,21 @@ module.exports = async (ctx) => {
     }
   }
 
+  // ── State 2: Config creating ───────────────────────────────────────────────
   if (!configs.length) {
+    const daysLeft = Math.ceil(
+      (new Date(activeSub.expires_at) - new Date()) / (1000 * 60 * 60 * 24),
+    );
+    const expiresDate = new Date(activeSub.expires_at).toLocaleDateString('ru-RU');
+
     const text =
       `📱 *Мой VPN*\n\n` +
-      `⏳ Ваша конфигурация создаётся...\n` +
-      `Обычно это занимает 1-2 минуты.`;
+      `✅ Подписка: до ${expiresDate} \\(${formatDaysLeft(daysLeft)}\\)\n\n` +
+      `⏳ *Создаём конфигурацию\\.\\.\\.*\n` +
+      `Обычно это занимает 1–2 минуты\\.\n\n` +
+      `Нажмите "Обновить" через минуту\\.`;
 
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('🔄 Проверить', 'my_vpn')],
-      [Markup.button.callback('◀️ Назад', 'menu')],
-    ]);
+    const keyboard = buildCreatingKeyboard();
 
     if (ctx.callbackQuery) {
       if (ctx.callbackQuery.message?.photo) {
@@ -171,66 +202,58 @@ module.exports = async (ctx) => {
     return ctx.replyWithMarkdown(text, keyboard);
   }
 
+  // ── State 3: Config ready ───────────────────────────────────────────────────
   const daysLeft = Math.ceil((new Date(activeSub.expires_at) - new Date()) / (1000 * 60 * 60 * 24));
-
-  // Get first config (subscription link)
+  const expiresDate = new Date(activeSub.expires_at).toLocaleDateString('ru-RU');
   const mainConfig = configs[0];
   const snap = mainConfig.panel_snapshot;
 
-  // Build user-friendly message
-  let messageText =
-    `📱 *Мой VPN*\n\n` +
-    `✅ Подписка активна до ${new Date(activeSub.expires_at).toLocaleDateString('ru-RU')}\n` +
-    `📅 Осталось: *${daysLeft} ${daysLeft === 1 ? 'день' : daysLeft < 5 ? 'дня' : 'дней'}*\n\n` +
-    `🔗 *Ваша подписка:*\n` +
-    `🖥 ${escapeMarkdown(serverLabel(mainConfig))}`;
+  // Build status line
+  let statusText = `✅ Подписка: до ${expiresDate} \\(${formatDaysLeft(daysLeft)}\\)`;
 
-  // Add device limit if available
-  if (snap?.hwidDeviceLimit != null && snap.hwidDeviceLimit !== '') {
-    messageText += ` • 📱 До ${snap.hwidDeviceLimit} устройств`;
+  // Add device info if available
+  if (snap?.hwidDeviceLimit != null && snap.hwidDeviceLimit > 0) {
+    const used = snap.usedDevices || 0;
+    statusText += `\n📱 Устройств: ${used} из ${snap.hwidDeviceLimit}`;
   }
 
   // Add traffic info if available
-  if (
-    snap?.usedTrafficBytes != null &&
-    snap?.trafficLimitBytes != null &&
-    snap.trafficLimitBytes > 0
-  ) {
-    const used = formatTrafficUsed(snap.usedTrafficBytes);
-    const limit = formatTrafficUsed(snap.trafficLimitBytes);
-    if (used && limit) {
-      messageText += `\n📊 Трафик: ${used} / ${limit}`;
-    }
+  if (snap?.usedTrafficBytes != null && snap?.trafficLimitBytes > 0) {
+    const used = formatTraffic(snap.usedTrafficBytes);
+    const limit = formatTraffic(snap.trafficLimitBytes);
+    statusText += `\n📊 Трафик: ${used} / ${limit}`;
   }
 
-  messageText += `\n\n💡 Нажмите кнопку ниже для получения ссылки`;
+  const serverName = escapeMarkdown(getServerName(mainConfig));
 
-  // Build keyboard
-  const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback('📷 Запросить подключение', `show_qr_${mainConfig.id}`)],
-    [Markup.button.callback('💳 Продлить подписку', 'subscribe')],
-    [Markup.button.callback('◀️ В меню', 'menu')],
-  ]);
+  const text =
+    `📱 *Мой VPN*\n\n` +
+    `${statusText}\n\n` +
+    `🔗 *Как подключиться:*\n` +
+    `1\\. Нажмите "Подключить VPN"\n` +
+    `2\\. Выберите приложение для подключения\n` +
+    `3\\. Подтвердите добавление конфигурации\n\n` +
+    `💡 Сервер: ${serverName}`;
+
+  const keyboard = buildReadyKeyboard(mainConfig.id);
 
   if (ctx.callbackQuery) {
     if (ctx.callbackQuery.message?.photo) {
       await ctx.deleteMessage().catch(() => {});
-      return ctx.replyWithMarkdown(messageText, keyboard);
+      return ctx.replyWithMarkdown(text, keyboard);
     }
-    return ctx.editMessageText(messageText, { parse_mode: 'Markdown', ...keyboard });
+    return ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
   }
 
-  return ctx.replyWithMarkdown(messageText, keyboard);
+  return ctx.replyWithMarkdown(text, keyboard);
 };
 
-/**
- * Show connection details with QR option
- */
+// ── Show Config Details (QR/Connect) ──────────────────────────────────────────
+
 module.exports.showQr = async (ctx, configId) => {
   if (ctx.callbackQuery) await ctx.answerCbQuery();
 
   const user = ctx.state.user;
-
   const configs = await VpnService.getConfigsForUser(user.id);
   const cfg = configs.find((c) => c.id === parseInt(configId, 10));
 
@@ -240,46 +263,51 @@ module.exports.showQr = async (ctx, configId) => {
 
   const link = String(cfg.config_link || '').trim();
   const isSubscription = link.startsWith('http://') || link.startsWith('https://');
+  const serverName = escapeMarkdown(getServerName(cfg));
+  const snap = cfg.panel_snapshot;
 
-  const configText = buildFullConfigText(cfg);
+  // Build info text
+  let infoText = `🖥 *${serverName}*\n\n`;
+
+  if (snap?.hwidDeviceLimit != null && snap.hwidDeviceLimit > 0) {
+    infoText += `📱 Устройств: до ${snap.hwidDeviceLimit}\n`;
+  }
+
+  if (snap?.usedTrafficBytes != null && snap?.trafficLimitBytes > 0) {
+    infoText += `📊 Трафик: ${formatTraffic(snap.usedTrafficBytes)} / ${formatTraffic(snap.trafficLimitBytes)}\n`;
+  }
+
+  infoText += `\n💡 Нажмите кнопку ниже для подключения`;
 
   const keyboardRows = [];
 
-  // Add "Connect" button for subscription links
+  // Primary: open in app
   if (isSubscription) {
     keyboardRows.push([Markup.button.url('🚀 Открыть в приложении', link)]);
   }
 
-  // Add QR button if QR code exists
-  if (cfg.qrCode) {
-    keyboardRows.push([Markup.button.callback('📷 Открыть QR-код', `show_qr_image_${cfg.id}`)]);
-  }
+  // Secondary: copy link
+  keyboardRows.push([Markup.button.callback('📋 Копировать ссылку', `copy_link_${cfg.id}`)]);
 
-  keyboardRows.push([Markup.button.callback('📋 Скопировать ссылку', `copy_link_${cfg.id}`)]);
-  keyboardRows.push([Markup.button.callback('◀️ К списку', 'my_vpn')]);
-  keyboardRows.push([Markup.button.callback('🏠 В меню', 'menu')]);
+  // Navigation
+  keyboardRows.push([Markup.button.callback('◀️ К подписке', 'my_vpn')]);
 
   const keyboard = Markup.inlineKeyboard(keyboardRows);
 
   if (ctx.callbackQuery?.message?.photo) {
-    return ctx.editMessageCaption(configText, {
-      parse_mode: 'Markdown',
-      ...keyboard,
-    });
+    return ctx.editMessageCaption(infoText, { parse_mode: 'Markdown', ...keyboard });
   }
 
   await ctx.deleteMessage().catch(() => {});
-  return ctx.replyWithMarkdown(configText, keyboard);
+  return ctx.replyWithMarkdown(infoText, keyboard);
 };
 
-/**
- * Show QR code image
- */
+// ── Show QR Code Image ────────────────────────────────────────────────────────
+
 module.exports.showQrImage = async (ctx, configId) => {
   if (ctx.callbackQuery) await ctx.answerCbQuery();
 
   const user = ctx.state.user;
-
   const configs = await VpnService.getConfigsForUser(user.id);
   const cfg = configs.find((c) => c.id === parseInt(configId, 10));
 
@@ -289,8 +317,12 @@ module.exports.showQrImage = async (ctx, configId) => {
 
   const link = String(cfg.config_link || '').trim();
   const isSubscription = link.startsWith('http://') || link.startsWith('https://');
+  const serverName = escapeMarkdown(getServerName(cfg));
 
-  const configText = buildFullConfigText(cfg);
+  const text =
+    `🖥 *${serverName}*\n\n` +
+    `📱 Отсканируйте QR-код в VPN-приложении\n\n` +
+    `💡 Или нажмите "Копировать ссылку"`;
 
   const keyboardRows = [];
 
@@ -298,40 +330,29 @@ module.exports.showQrImage = async (ctx, configId) => {
     keyboardRows.push([Markup.button.url('🚀 Открыть в приложении', link)]);
   }
 
-  keyboardRows.push([Markup.button.callback('📋 Скопировать ссылку', `copy_link_${cfg.id}`)]);
-  keyboardRows.push([Markup.button.callback('◀️ К списку', 'my_vpn')]);
-  keyboardRows.push([Markup.button.callback('🏠 В меню', 'menu')]);
+  keyboardRows.push([Markup.button.callback('📋 Копировать ссылку', `copy_link_${cfg.id}`)]);
+  keyboardRows.push([Markup.button.callback('◀️ К подписке', 'my_vpn')]);
 
   const keyboard = Markup.inlineKeyboard(keyboardRows);
-
   const qrBuffer = Buffer.from(cfg.qrCode.split(',')[1], 'base64');
 
   if (ctx.callbackQuery?.message?.photo) {
-    return ctx.editMessageCaption(configText, {
-      parse_mode: 'Markdown',
-      ...keyboard,
-    });
+    return ctx.editMessageCaption(text, { parse_mode: 'Markdown', ...keyboard });
   }
 
   await ctx.deleteMessage().catch(() => {});
   return ctx.replyWithPhoto(
     { source: qrBuffer },
-    {
-      caption: configText,
-      parse_mode: 'Markdown',
-      ...keyboard,
-    },
+    { caption: text, parse_mode: 'Markdown', ...keyboard },
   );
 };
 
-/**
- * Copy link handler - sends link as a separate message for easy copying
- */
+// ── Copy Link Handler ────────────────────────────────────────────────────────
+
 module.exports.copyLink = async (ctx, configId) => {
   if (ctx.callbackQuery) await ctx.answerCbQuery('📋 Ссылка отправлена ниже');
 
   const user = ctx.state.user;
-
   const configs = await VpnService.getConfigsForUser(user.id);
   const cfg = configs.find((c) => c.id === parseInt(configId, 10));
 
@@ -341,14 +362,14 @@ module.exports.copyLink = async (ctx, configId) => {
 
   const link = String(cfg.config_link || '').trim();
 
-  // Send link as a separate message so user can copy it
-  // Don't use Markdown for the link itself to avoid escaping issues
+  // Plain text message without Markdown to avoid escaping issues with URLs
   const text =
-    `📋 Ваша ссылка:\n\n` + `${link}\n\n` + `💡 Скопируйте ссылку выше (долгий тап → Копировать)`;
+    `📋 Ваша ссылка для подключения:\n\n` +
+    `${link}\n\n` +
+    `💡 Скопируйте ссылку выше (долгий тап → Копировать)\n` +
+    `Вставьте её в VPN-приложение для подключения.`;
 
-  const keyboard = Markup.inlineKeyboard([
-    [Markup.button.callback('◀️ Назад', `show_qr_${cfg.id}`)],
-  ]);
+  const keyboard = Markup.inlineKeyboard([[Markup.button.callback('◀️ К подписке', 'my_vpn')]]);
 
   return ctx.reply(text, keyboard);
 };
