@@ -3,6 +3,8 @@
 const { Markup } = require('telegraf');
 const VpnService = require('../../services/VpnService');
 const SubscriptionService = require('../../services/SubscriptionService');
+const Plan = require('../../models/Plan');
+const logger = require('../../utils/logger');
 
 function protocolLabel(protocol) {
   const value = String(protocol || '').toLowerCase();
@@ -120,7 +122,33 @@ module.exports = async (ctx) => {
     return ctx.replyWithMarkdown(text, keyboard);
   }
 
-  const configs = await VpnService.getConfigsForUser(user.id);
+  let configs = await VpnService.getConfigsForUser(user.id);
+
+  // Self-heal: if user has active subscription but no VPN config, try to provision
+  if (!configs.length && activeSub) {
+    logger.info('Self-heal: attempting VPN provision for user with active sub', {
+      userId: user.id,
+      subscriptionId: activeSub.id,
+    });
+
+    try {
+      const plan = await Plan.findById(activeSub.plan_id);
+      if (plan) {
+        await VpnService.provision(user.id, activeSub.id, plan, plan.is_trial || false);
+        // Re-fetch configs after provision attempt
+        configs = await VpnService.getConfigsForUser(user.id);
+        logger.info('Self-heal: provision completed', {
+          userId: user.id,
+          configsCreated: configs.length,
+        });
+      }
+    } catch (err) {
+      logger.error('Self-heal: provision failed', {
+        userId: user.id,
+        error: err.message,
+      });
+    }
+  }
 
   if (!configs.length) {
     const text =

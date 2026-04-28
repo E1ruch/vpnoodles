@@ -342,8 +342,12 @@ class RemnawaveAdapter {
     try {
       raw = await this._request('GET', `/users/by-username/${encodeURIComponent(username)}`);
     } catch (err) {
-      // HTTP 404 from panel — user doesn't exist
-      if (err.response?.status === 404) throw err;
+      // HTTP 404 from panel — user doesn't exist (expected case for new users)
+      if (err.response?.status === 404) {
+        // Log at debug level, not error — this is expected for new users
+        logger.debug('Panel user not found (expected for new users)', { username });
+        throw err;
+      }
       throw err;
     }
 

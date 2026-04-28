@@ -224,20 +224,37 @@ const VpnService = {
 
   /**
    * Re-enable VPN configs for a user (on subscription renewal).
+   * Returns true if any config was enabled, false otherwise.
    */
   async enableForUser(userId) {
     const configs = await VpnConfig.findActiveByUserId(userId);
+    let enabled = false;
 
     for (const cfg of configs) {
       try {
         if (isPanelConfigured()) {
-          await adapter.enableUser(cfg.panel_user_id);
+          // 404 means user doesn't exist in panel — not an error, just skip
+          try {
+            await adapter.enableUser(cfg.panel_user_id);
+          } catch (enableErr) {
+            if (enableErr.response?.status === 404) {
+              logger.debug('Panel user not found, skipping enable', {
+                panelUserId: cfg.panel_user_id,
+                configId: cfg.id,
+              });
+              // Don't mark as enabled — will be handled by provision
+              continue;
+            }
+            throw enableErr;
+          }
         }
         await VpnConfig.enable(cfg.id);
+        enabled = true;
       } catch (err) {
         logger.error('Failed to enable VPN config', { configId: cfg.id, error: err.message });
       }
     }
+    return enabled;
   },
 
   /**

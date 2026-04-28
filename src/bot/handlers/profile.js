@@ -5,7 +5,8 @@ const PaymentService = require('../../services/PaymentService');
 const { btn } = require('../utils/btn');
 
 /**
- * Escape special characters for Telegram Markdown
+ * Escape special characters for Telegram MarkdownV2
+ * MarkdownV2 requires escaping: _ * [ ] ( ) ~ ` > # + - = | { } . !
  */
 function escapeMarkdown(text) {
   return String(text || '').replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
@@ -68,8 +69,8 @@ module.exports = async (ctx) => {
   const text =
     `👤 *Ваш профиль*\n\n` +
     `🆔 ID: \`${user.telegram_id}\`\n` +
-    `👤 Имя: ${user.first_name || '—'} ${user.last_name || ''}\n` +
-    `📛 Username: ${user.username ? `@${user.username}` : '—'}\n` +
+    `👤 Имя: ${escapeMarkdown(user.first_name || '—')} ${escapeMarkdown(user.last_name || '')}\n` +
+    `📛 Username: ${user.username ? `@${escapeMarkdown(user.username)}` : '—'}\n` +
     `📅 Регистрация: ${new Date(user.created_at).toLocaleDateString('ru-RU')}\n\n` +
     `📦 *Подписка:* ${subStatus}\n\n` +
     `💳 Оплат: ${paidCount}\n` +
