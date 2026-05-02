@@ -103,6 +103,18 @@ const Notification = {
     const result = await db(TABLE).where('sent_at', '<', threshold).delete();
     return result;
   },
+
+  /**
+   * Delete a notification (for retry on failure).
+   * @param {number} userId
+   * @param {string} type
+   * @param {string} key
+   * @returns {Promise<number>} count of deleted rows
+   */
+  async delete(userId, type, key) {
+    const result = await db(TABLE).where({ user_id: userId, type, key }).delete();
+    return result;
+  },
 };
 
 module.exports = Notification;

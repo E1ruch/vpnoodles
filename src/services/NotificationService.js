@@ -83,6 +83,9 @@ const NotificationService = {
 
       return true;
     } catch (err) {
+      // Delete notification record to allow retry on next cron run
+      await Notification.delete(userId, NotificationService.TYPES.TRIAL_EXPIRED, key);
+
       logger.error('Failed to send trial expired notification', {
         userId,
         subscriptionId,
@@ -138,6 +141,13 @@ const NotificationService = {
       });
       return true;
     } catch (err) {
+      // Delete notification record to allow retry
+      await Notification.delete(
+        subscription.user_id,
+        NotificationService.TYPES.SUBSCRIPTION_EXPIRING,
+        key,
+      );
+
       logger.error('Failed to send expiring notification', {
         subscriptionId: subscription.id,
         error: err.message,
@@ -215,6 +225,9 @@ const NotificationService = {
       });
       return true;
     } catch (err) {
+      // Delete notification record to allow retry
+      await Notification.delete(userId, type, key);
+
       logger.error('Failed to send traffic limit notification', {
         userId,
         subscriptionId,
@@ -272,6 +285,9 @@ const NotificationService = {
       logger.info('Device limit notification sent', { userId, subscriptionId });
       return true;
     } catch (err) {
+      // Delete notification record to allow retry
+      await Notification.delete(userId, NotificationService.TYPES.DEVICE_LIMIT, key);
+
       logger.error('Failed to send device limit notification', {
         userId,
         subscriptionId,

@@ -176,13 +176,17 @@ class RemnawaveAdapter {
         }
       }
 
-      logger.error('Remnawave API error', {
-        method,
-        path,
-        status: err.response?.status,
-        code: err.code,
-        message: err.response?.data?.message || err.message,
-      });
+      // Don't log 404 as error — it's expected for new users (getUser by username)
+      // The caller (getUser) will log at debug level
+      if (err.response?.status !== 404) {
+        logger.error('Remnawave API error', {
+          method,
+          path,
+          status: err.response?.status,
+          code: err.code,
+          message: err.response?.data?.message || err.message,
+        });
+      }
       throw err;
     }
   }
